@@ -47,7 +47,7 @@ final class RemoveDeviceTests: XCTestCase {
     func test_removeDevice_clearsHotkeyTargetWhenItWasTheRemovedOne() async {
         let apiStub = DreoAPIServiceStub()
         let settings = SettingsRepositoryFake(
-            stored: AppSettings(lastSelectedDeviceSerialNumber: "SN1")
+            stored: AppSettings(lastSelectedDeviceSerialNumber: "SN1", hasCompletedOnboarding: false)
         )
         let model = await readyModel(devices: [device("SN1"), device("SN2")], apiStub: apiStub, settings: settings)
         XCTAssertEqual(model.lastSelectedOrFirstDevice?.serialNumber, "SN1")

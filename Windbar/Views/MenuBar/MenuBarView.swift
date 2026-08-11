@@ -15,7 +15,11 @@ struct MenuBarView: View {
             case .loading:
                 StatusPlaceholder(isBusy: true, message: "Connecting to your devices…")
             case .needsLogin:
-                LoginView(appModel: appModel)
+                if appModel.settings.hasCompletedOnboarding {
+                    LoginView(appModel: appModel)
+                } else {
+                    OnboardingView(appModel: appModel)
+                }
             case .ready:
                 ready
             }
