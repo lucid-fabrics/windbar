@@ -95,7 +95,7 @@ run "major 1.0.0 -> 2.0.0"      "pass"  "2.0.0"  "1"
 run "minor 1.9.0 -> 1.10.0 (semver)"  "pass"  "1.10.0" "1"
 run "downgrade 1.10.0 -> 1.9.0 (semver)"  "fail"  "1.9.0"  "1"
 run "0.99.99 -> 1.0.0"          "pass"  "1.0.0"  "1"
-run "1.2.10 -> 1.2.9"            "fail"  "1.2.9"  "1"
+run "1.2.10 -> 1.2.9"            "fail"  "1.2.9"  "1"  "v1.2.10"
 # No prior tag: any version/build is accepted (initial release on a
 # brand-new repo).
 run "no prior tag, initial release"  "pass"  "1.0.0"  "1"  ""

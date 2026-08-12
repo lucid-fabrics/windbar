@@ -2,15 +2,25 @@
 # Fail if the project.yml version in this commit is not strictly newer
 # than the most recent vX.Y.Z tag on the default branch.
 #
-# Re-tagging the exact same version+build is the only thing rejected by
-# the same-version build check; a downgrade is rejected by sort -V's real
-# semver compare. The first release on a brand-new repo always passes.
+# Re-tagging the exact same version+build is rejected by the same-version
+# build check; a downgrade is rejected by sort -V's real semver compare.
+# The first release on a brand-new repo (no prior tag) always passes.
 #
 # Usage (CI job uses HEAD):
 #   ./scripts/check-version-bump.sh
 #
 # Local dry-run, from any commit:
 #   ./scripts/check-version-bump.sh
+#
+# Run the test suite (12 cases, includes 1.9.0 -> 1.10.0 regression):
+#   ./scripts/test-check-version-bump.sh
+#
+# Soft spots (intentional, not bugs):
+#   - Pre-release and build-metadata suffixes (1.0.0-rc.1, 1.0.0+sha) are
+#     not semver-2.0.0. sort -V's handling of them is coreutils-version
+#     dependent. Project uses plain X.Y.Z tags.
+#   - This script is advisory: a maintainer with force-push or admin
+#     access can bypass it. It is not a security boundary.
 
 set -eu
 
