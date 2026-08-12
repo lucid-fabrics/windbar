@@ -3,4 +3,4 @@
 test: test-version-bump
 
 test-version-bump:
-	@./scripts/test-check-version-bump.sh
+	@python3 ./scripts/test-check-version-bump.py
