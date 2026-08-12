@@ -57,32 +57,7 @@ jobs:
           fetch-depth: 0
 
       - name: Require version bump
-        run: |
-          set -eo pipefail
-          # Bump MARKETING_VERSION (or CURRENT_PROJECT_VERSION) in project.yml.
-          # Re-tagging the exact same version+build is rejected, a downgrade
-          # is rejected, and a same-version rebuild needs a higher build
-          # number. The first release on a brand-new repo passes.
-          last_tag="$(git tag --sort=-version:refname --no-contains HEAD 'v*' | head -n1 || true)"
-          if [ -z "$last_tag" ]; then
-            echo "No prior release tag, accepting initial release."
-            exit 0
-          fi
-          last_build="$(git show "${last_tag}:project.yml" | sed -n 's/^    CURRENT_PROJECT_VERSION: *"\(.*\)".*/\1/p')"
-          cur_ver="$(sed -n 's/^    MARKETING_VERSION: *"\(.*\)".*/\1/p' project.yml)"
-          cur_build="$(sed -n 's/^    CURRENT_PROJECT_VERSION: *"\(.*\)".*/\1/p' project.yml)"
-          if [ "$cur_ver" = "${last_tag#v}" ] && [ "$cur_build" -le "$last_build" ]; then
-            echo "::error::${last_tag} is already at ${cur_ver}+${cur_build}. Bump MARKETING_VERSION or CURRENT_PROJECT_VERSION in project.yml."
-            exit 1
-          fi
-          # sort -V does real semver compare: 1.2.10 > 1.10.0, not the lexical
-          # trap that bare string compare would fall into. Order the two
-          # versions; if cur_ver is not strictly greater, fail.
-          if ! printf '%s\n%s\n' "${last_tag#v}" "$cur_ver" | sort -V -c; then
-            echo "::error::MARKETING_VERSION $cur_ver is not greater than released $last_tag. Bump it in project.yml."
-            exit 1
-          fi
-          echo "Bump ok: ${last_tag} -> ${cur_ver}+${cur_build}."
+        run: ./scripts/check-version-bump.sh
 
       - name: Build and test
         run: |
