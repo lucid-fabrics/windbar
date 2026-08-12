@@ -1,4 +1,3 @@
-import KeyboardShortcuts
 import ServiceManagement
 import SwiftUI
 
@@ -10,17 +9,6 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                KeyboardShortcuts.Recorder("Last-used device:", name: .toggleFanPower)
-            } header: {
-                Label("Shortcut", systemImage: "keyboard")
-            } footer: {
-                Text("Toggles whichever device you touched last. Each fan can also have its own key, "
-                     + "under More Options on that fan in the menu.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
@@ -43,7 +31,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 360)
+        .frame(width: 400, height: 200)
         // Confirm first: this discards a password the user may not remember, and there
         // is no undo.
         .confirmationDialog("Sign out of Dreo?", isPresented: $isConfirmingSignOut) {
