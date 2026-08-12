@@ -60,9 +60,9 @@ jobs:
         run: |
           set -eo pipefail
           # Bump MARKETING_VERSION (or CURRENT_PROJECT_VERSION) in project.yml.
-          # Re-tagging the exact same version+build is the only thing that's
-          # blocked, and a downgrade is never accepted. The first release on
-          # a brand-new repo passes.
+          # Re-tagging the exact same version+build is rejected, a downgrade
+          # is rejected, and a same-version rebuild needs a higher build
+          # number. The first release on a brand-new repo passes.
           last_tag="$(git tag --sort=-version:refname --no-contains HEAD 'v*' | head -n1 || true)"
           if [ -z "$last_tag" ]; then
             echo "No prior release tag, accepting initial release."
@@ -71,17 +71,15 @@ jobs:
           last_build="$(git show "${last_tag}:project.yml" | sed -n 's/^    CURRENT_PROJECT_VERSION: *"\(.*\)".*/\1/p')"
           cur_ver="$(sed -n 's/^    MARKETING_VERSION: *"\(.*\)".*/\1/p' project.yml)"
           cur_build="$(sed -n 's/^    CURRENT_PROJECT_VERSION: *"\(.*\)".*/\1/p' project.yml)"
-          # Same version -> build number must be strictly greater.
           if [ "$cur_ver" = "${last_tag#v}" ] && [ "$cur_build" -le "$last_build" ]; then
             echo "::error::${last_tag} is already at ${cur_ver}+${cur_build}. Bump MARKETING_VERSION or CURRENT_PROJECT_VERSION in project.yml."
             exit 1
           fi
-          # Different version -> must be a strictly higher semver than the prior
-          # tag, not a downgrade. Loose parsing: dotted-integers only.
-          cur_ord="$(printf '%s' "$cur_ver" | tr -d '.' | tr -cd '0-9')"
-          last_ord="$(printf '%s' "${last_tag#v}" | tr -d '.' | tr -cd '0-9')"
-          if [ "${#cur_ord}" -lt "${#last_ord}" ] || { [ "${#cur_ord}" = "${#last_ord}" ] && [ "$cur_ord" \< "$last_ord" ]; }; then
-            echo "::error::MARKETING_VERSION $cur_ver is lower than released $last_tag. Bump it in project.yml."
+          # sort -V does real semver compare: 1.2.10 > 1.10.0, not the lexical
+          # trap that bare string compare would fall into. Order the two
+          # versions; if cur_ver is not strictly greater, fail.
+          if ! printf '%s\n%s\n' "${last_tag#v}" "$cur_ver" | sort -V -c; then
+            echo "::error::MARKETING_VERSION $cur_ver is not greater than released $last_tag. Bump it in project.yml."
             exit 1
           fi
           echo "Bump ok: ${last_tag} -> ${cur_ver}+${cur_build}."
