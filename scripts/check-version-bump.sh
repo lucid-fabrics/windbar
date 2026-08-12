@@ -34,9 +34,13 @@ if [ ! -f project.yml ]; then
     exit 1
 fi
 
-# --no-contains HEAD: re-tagging the same commit's own version must not
-# flag itself.
-last_tag="$(git tag --sort=-version:refname --no-contains HEAD 'v*' | head -n1 || true)"
+# Find the most recent tag (by version-sorted refname). If that tag points
+# at HEAD, skip it: the user is re-tagging the current commit, so the
+# "prior release" is HEAD itself and there's nothing to bump against.
+last_tag="$(git tag -l --sort=-version:refname 'v*' | head -n1 || true)"
+if [ -n "$last_tag" ] && [ "$(git rev-parse "$last_tag")" = "$(git rev-parse HEAD)" ]; then
+    last_tag="$(git tag -l --sort=-version:refname 'v*' | sed -n '2p')"
+fi
 
 if [ -z "$last_tag" ]; then
     echo "No prior release tag, accepting initial release."
@@ -44,7 +48,7 @@ if [ -z "$last_tag" ]; then
 fi
 
 read_field() {
-    sed -n "s/^    $1: *\"\\(.*\\)\".*/\\1/p" "$2"
+    grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
 }
 
 cur_ver="$(read_field MARKETING_VERSION project.yml)"
