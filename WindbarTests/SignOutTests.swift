@@ -21,7 +21,7 @@ final class SignOutTests: XCTestCase {
         socket: DreoSocketServiceFake,
         keychain: KeychainRepositoryFake,
         settings: SettingsRepositoryFake = SettingsRepositoryFake(
-            stored: AppSettings(lastSelectedDeviceSerialNumber: "SN1")
+            stored: AppSettings(lastSelectedDeviceSerialNumber: "SN1", hasCompletedOnboarding: false)
         )
     ) async -> AppModel {
         await apiStub.setDevicesResult(.success([device("SN1"), device("SN2")]))

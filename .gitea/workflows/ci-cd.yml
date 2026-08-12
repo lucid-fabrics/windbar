@@ -53,6 +53,11 @@ jobs:
     runs-on: [hackintosh-ios]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require version bump
+        run: ./scripts/check-version-bump.sh
 
       - name: Build and test
         run: |
