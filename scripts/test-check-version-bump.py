@@ -78,21 +78,25 @@ def bump(tmp, new_ver, new_build):
     subprocess.run(["git", "commit", "-q", "-m", "bump"], cwd=tmp)
 
 
-# (label, expected, prior_tag, new_ver, new_build)
+# (label, expected, prior_tag, new_ver, new_build, event_name)
+# event_name: None -> pull_request mode (strict check), "workflow_dispatch" -> bypass.
 CASES = [
-    ("same version+build",                 "fail", "v1.0.0",   "1.0.0",  "1"),
-    ("same version, higher build",         "pass", "v1.0.0",   "1.0.0",  "2"),
-    ("same version, lower build",          "fail", "v1.0.0",   "1.0.0",  "0"),
-    ("downgrade 1.0.0 -> 0.9.9",          "fail", "v1.0.0",   "0.9.9",  "1"),
-    ("patch 1.0.0 -> 1.0.1",              "pass", "v1.0.0",   "1.0.1",  "1"),
-    ("minor 1.0.0 -> 1.1.0",              "pass", "v1.0.0",   "1.1.0",  "1"),
-    ("major 1.0.0 -> 2.0.0",              "pass", "v1.0.0",   "2.0.0",  "1"),
-    ("minor 1.9.0 -> 1.10.0 (semver)",    "pass", "v1.9.0",   "1.10.0", "1"),
-    ("downgrade 1.10.0 -> 1.9.0 (semver)","fail", "v1.10.0",  "1.9.0",  "1"),
-    ("0.99.99 -> 1.0.0",                  "pass", "v0.99.99", "1.0.0",  "1"),
-    ("1.2.10 -> 1.2.9",                   "fail", "v1.2.10",  "1.2.9",  "1"),
+    ("same version+build",                 "fail", "v1.0.0",   "1.0.0",  "1",   None),
+    ("same version, higher build",         "pass", "v1.0.0",   "1.0.0",  "2",   None),
+    ("same version, lower build",          "fail", "v1.0.0",   "1.0.0",  "0",   None),
+    ("downgrade 1.0.0 -> 0.9.9",          "fail", "v1.0.0",   "0.9.9",  "1",   None),
+    ("patch 1.0.0 -> 1.0.1",              "pass", "v1.0.0",   "1.0.1",  "1",   None),
+    ("minor 1.0.0 -> 1.1.0",              "pass", "v1.0.0",   "1.1.0",  "1",   None),
+    ("major 1.0.0 -> 2.0.0",              "pass", "v1.0.0",   "2.0.0",  "1",   None),
+    ("minor 1.9.0 -> 1.10.0 (semver)",    "pass", "v1.9.0",   "1.10.0", "1",   None),
+    ("downgrade 1.10.0 -> 1.9.0 (semver)","fail", "v1.10.0",  "1.9.0",  "1",   None),
+    ("0.99.99 -> 1.0.0",                  "pass", "v0.99.99", "1.0.0",  "1",   None),
+    ("1.2.10 -> 1.2.9",                   "fail", "v1.2.10",  "1.2.9",  "1",   None),
     # No prior tag: initial release on a brand-new repo.
-    ("no prior tag, initial release",      "pass", "",        "1.0.0",  "1"),
+    ("no prior tag, initial release",      "pass", "",        "1.0.0",  "1",   None),
+    # Bypass cases: workflow_dispatch must pass even on equal/regression.
+    ("workflow_dispatch same ver+build",   "pass", "v1.0.0",   "1.0.0",  "1",   "workflow_dispatch"),
+    ("workflow_dispatch downgrade",       "pass", "v1.0.0",   "0.9.9",  "1",   "workflow_dispatch"),
 ]
 
 
@@ -103,7 +107,7 @@ def main() -> int:
 
     passed = 0
     failed = 0
-    for label, expected, prior, new_ver, new_build in CASES:
+    for label, expected, prior, new_ver, new_build, event_name in CASES:
         prior_ver = prior[1:] if prior else "1.0.0"
         prior_build = "1"
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,8 +117,9 @@ def main() -> int:
             # If no prior tag, leave project.yml at the initial values
             # so the script sees the actual "first commit".
 
-            result = subprocess.run([SCRIPT], cwd=tmp, capture_output=True, text=True, timeout=15,
-                                       env={**os.environ, "GITHUB_EVENT_NAME": "pull_request"})
+            env = dict(os.environ)
+            env["GITHUB_EVENT_NAME"] = event_name or "pull_request"
+            result = subprocess.run([SCRIPT], cwd=tmp, capture_output=True, text=True, timeout=15, env=env)
             actual = "pass" if result.returncode == 0 else "fail"
             if actual == expected:
                 passed += 1

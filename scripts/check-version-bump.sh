@@ -42,23 +42,37 @@ if [ -n "$last_tag" ] && [ "$(git rev-parse "$last_tag")" = "$(git rev-parse HEA
     last_tag="$(git tag -l --sort=-version:refname 'v*' | sed -n '2p')"
 fi
 
-# The bump gate applies to PRs from feature branches. workflow_dispatch
-# (manual upload rebuild) and tag-push (release tag creation) bypass it:
-# in those cases the version on the matching tag is already the
-# authoritative one and a forced rebuild must not be blocked.
+# The bump gate has three cases:
+#   - workflow_dispatch (manual upload rebuild) and create (release tag
+#     push): bypass entirely. The version on the matching tag is already
+#     authoritative.
+#   - pull_request: bypass if the PR diff does NOT touch project.yml.
+#     Infra-only PRs must not require a version bump.
+#   - push (direct to main): enforce - the user must have a real bump.
+#   - any other event: enforce conservatively.
+#
 # Read GITHUB_EVENT_NAME safely - set -u treats unbound differently from empty.
 GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME-}"
-echo "DEBUG: GITHUB_EVENT_NAME='$GITHUB_EVENT_NAME'"
-if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
-    read_field() {
-        grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
-    }
-    cur_ver="$(read_field MARKETING_VERSION project.yml)"
-    cur_build="$(read_field CURRENT_PROJECT_VERSION project.yml)"
-    last_tag_for_log="${last_tag:-<none>}"
-    echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}: skipping version-bump check for ${cur_ver}+${cur_build} (tag ${last_tag_for_log})."
-    exit 0
-fi
+case "$GITHUB_EVENT_NAME" in
+    workflow_dispatch|create)
+        read_field() {
+            grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
+        }
+        cur_ver="$(read_field MARKETING_VERSION project.yml)"
+        cur_build="$(read_field CURRENT_PROJECT_VERSION project.yml)"
+        last_tag_for_log="${last_tag:-<none>}"
+        echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}: skipping version-bump check for ${cur_ver}+${cur_build} (tag ${last_tag_for_log})."
+        exit 0
+        ;;
+    pull_request)
+        # Infra-only PRs (workflow, scripts, docs) must merge without a
+        # version bump. The check below only fires if project.yml changed.
+        if ! git diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q "^project\.yml$"; then
+            echo "pull_request does not touch project.yml: skipping version-bump check."
+            exit 0
+        fi
+        ;;
+esac
 
 if [ -z "$last_tag" ]; then
     echo "No prior release tag, accepting initial release."
