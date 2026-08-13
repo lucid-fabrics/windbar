@@ -48,6 +48,7 @@ fi
 # authoritative one and a forced rebuild must not be blocked.
 # Read GITHUB_EVENT_NAME safely - set -u treats unbound differently from empty.
 GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME-}"
+echo "DEBUG: GITHUB_EVENT_NAME='$GITHUB_EVENT_NAME'"
 if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
     read_field() {
         grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
