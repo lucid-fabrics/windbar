@@ -57,9 +57,7 @@ jobs:
           fetch-depth: 0
 
       - name: Require version bump
-        run: ./scripts/check-version-bump.sh
-        env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: GITHUB_EVENT_NAME=${{ github.event_name }} ./scripts/check-version-bump.sh
 
       - name: Build and test
         run: |
