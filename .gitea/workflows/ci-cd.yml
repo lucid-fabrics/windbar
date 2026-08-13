@@ -59,7 +59,7 @@ jobs:
       - name: Require version bump
         run: ./scripts/check-version-bump.sh
         env:
-          FORCE_APPSTORE: ${{ github.event.inputs.force_appstore }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
 
       - name: Build and test
         run: |

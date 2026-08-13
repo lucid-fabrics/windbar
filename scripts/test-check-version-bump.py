@@ -113,7 +113,8 @@ def main() -> int:
             # If no prior tag, leave project.yml at the initial values
             # so the script sees the actual "first commit".
 
-            result = subprocess.run([SCRIPT], cwd=tmp, capture_output=True, text=True, timeout=15)
+            result = subprocess.run([SCRIPT], cwd=tmp, capture_output=True, text=True, timeout=15,
+                                       env={**os.environ, "GITHUB_EVENT_NAME": "pull_request"})
             actual = "pass" if result.returncode == 0 else "fail"
             if actual == expected:
                 passed += 1

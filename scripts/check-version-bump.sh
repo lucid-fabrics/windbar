@@ -42,18 +42,20 @@ if [ -n "$last_tag" ] && [ "$(git rev-parse "$last_tag")" = "$(git rev-parse HEA
     last_tag="$(git tag -l --sort=-version:refname 'v*' | sed -n '2p')"
 fi
 
-# Manual workflow_dispatch with force_appstore=true bypasses the bump
-# gate: the maintainer has already confirmed the version on the matching
-# tag and is rebuilding against the same release. This is the only path
-# that lets fastlane re-run for a release tag without a fresh version
-# bump.
-if [ "${FORCE_APPSTORE:-false}" = "true" ] && [ -n "$last_tag" ]; then
+# The bump gate applies to PRs from feature branches. workflow_dispatch
+# (manual upload rebuild) and tag-push (release tag creation) bypass it:
+# in those cases the version on the matching tag is already the
+# authoritative one and a forced rebuild must not be blocked.
+# Read GITHUB_EVENT_NAME safely - set -u treats unbound differently from empty.
+GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME-}"
+if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
     read_field() {
         grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
     }
     cur_ver="$(read_field MARKETING_VERSION project.yml)"
     cur_build="$(read_field CURRENT_PROJECT_VERSION project.yml)"
-    echo "FORCE_APPSTORE=true: skipping version-bump check for ${cur_ver}+${cur_build} (tag ${last_tag} already matches)."
+    last_tag_for_log="${last_tag:-<none>}"
+    echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}: skipping version-bump check for ${cur_ver}+${cur_build} (tag ${last_tag_for_log})."
     exit 0
 fi
 
