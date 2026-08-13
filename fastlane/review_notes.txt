@@ -1,5 +1,15 @@
 Windbar is a menu bar client for Dreo smart fans (third-party WiFi/Bluetooth hardware).
 
+ABOUT AUTHORIZATION (Guideline 5.2.1):
+Windbar uses Dreo's own cloud API, the same API used by the official Dreo iOS and
+Android apps. Dreo's engineering team publicly documents and supports this API in their
+official Home Assistant integration: https://github.com/dreo-team/hass-dreoverse
+That repository is developed and maintained by Dreo (per its README), MIT-licensed, and
+documents the exact API endpoints Windbar uses. Third-party apps calling Dreo's API are not
+prohibited. We are awaiting a direct written confirmation from Dreo support; in the
+interim, the public repository above is the strongest evidence of Dreo's position on
+third-party API use.
+
 IMPORTANT FOR TESTING: this app controls physical hardware. Without a Dreo fan bound to the
 demo account, the app will sign in successfully and then show an empty fan list, which is the
 correct behaviour and not a bug.
@@ -15,3 +25,56 @@ Notes on capabilities:
 - The global keyboard shortcut uses standard Carbon hotkey registration and needs no
   Accessibility permission.
 - The app is sandboxed and has no Dock icon (LSUIElement), it appears only in the menu bar.
+
+
+================================================================================
+Guideline 2.1 - How to trigger the Bluetooth pairing modal alert
+================================================================================
+
+The app uses Core Bluetooth to provision a Dreo fan onto WiFi. The pairing
+flow uses Apple's standard Core Bluetooth state-change alert ("Turn On Bluetooth")
+when the OS adapter is off, plus the system's Bluetooth permission alert the
+first time a CBCentralManager is created.
+
+Step-by-step to reproduce on macOS 14+:
+
+1. Sign in to the demo account provided in this submission.
+
+   The fan list populates with the fan bound to that account. Pairing is
+   only triggered when adding a new fan.
+
+2. In the menu bar icon, click "Add a Device...".
+
+   This opens the pairing window and immediately creates a CBCentralManager
+   to scan for nearby Dreo fans in pairing mode.
+
+3. The first time this window is opened in a macOS session, macOS will
+   automatically show the system Bluetooth permission prompt
+   ("'Windbar' would like to use Bluetooth."). This is the standard
+   macOS TCC prompt for Core Bluetooth access.
+
+   Click OK to grant.
+
+4. If Bluetooth is currently OFF in System Settings, the same CBCentralManager
+   init also triggers Apple's built-in "Turn On Bluetooth to allow "Windbar" to
+   connect to wireless accessories" alert (NSAlert under CBManager). This is
+   standard Core Bluetooth behavior on macOS.
+
+5. To reproduce:
+   - Quit Windbar
+   - Toggle Bluetooth OFF in System Settings -> Bluetooth
+   - Launch Windbar again, sign in, click "Add a Device..."
+   - macOS will display the "Turn On Bluetooth" alert, which can be accepted
+     or dismissed.
+
+Both alerts above are produced by Apple's Core Bluetooth framework (CBCentralManager
+init), not by Windbar's code. They are visible on every macOS app that uses Core Bluetooth
+on first launch or when Bluetooth is off, respectively.
+
+A screen recording showing both alerts is available at the URL attached to this review
+submission.
+
+If Bluetooth is already on AND the permission has been granted, no alert appears, and the
+pairing window scans for nearby fans in pairing mode immediately. To see a fan in the
+list, the fan's physical pairing button must be held until its LED blinks, at which point
+the fan advertises for ~30 seconds.
