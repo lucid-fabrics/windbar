@@ -42,6 +42,21 @@ if [ -n "$last_tag" ] && [ "$(git rev-parse "$last_tag")" = "$(git rev-parse HEA
     last_tag="$(git tag -l --sort=-version:refname 'v*' | sed -n '2p')"
 fi
 
+# Manual workflow_dispatch with force_appstore=true bypasses the bump
+# gate: the maintainer has already confirmed the version on the matching
+# tag and is rebuilding against the same release. This is the only path
+# that lets fastlane re-run for a release tag without a fresh version
+# bump.
+if [ "${FORCE_APPSTORE:-false}" = "true" ] && [ -n "$last_tag" ]; then
+    read_field() {
+        grep "^    $1:" "$2" | sed -E "s/^    $1: *\"([^\"]*)\".*/\\1/"
+    }
+    cur_ver="$(read_field MARKETING_VERSION project.yml)"
+    cur_build="$(read_field CURRENT_PROJECT_VERSION project.yml)"
+    echo "FORCE_APPSTORE=true: skipping version-bump check for ${cur_ver}+${cur_build} (tag ${last_tag} already matches)."
+    exit 0
+fi
+
 if [ -z "$last_tag" ]; then
     echo "No prior release tag, accepting initial release."
     exit 0
