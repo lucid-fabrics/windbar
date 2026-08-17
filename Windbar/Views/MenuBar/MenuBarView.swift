@@ -8,6 +8,24 @@ struct MenuBarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
 
+    /// Which fan is showing its full card. One at a time, because a device
+    /// card is roughly a third of the screen height and two of them already
+    /// fill a laptop display, so a fourth fan would mean scrolling a menu bar
+    /// popover to reach a power switch. Held here rather than in each card
+    /// since expanding one has to close the others.
+    @State private var expansion: Expansion = .unchosen
+
+    /// `unchosen` is deliberately distinct from `allCollapsed`. Resolving the
+    /// default during the first render rather than in `onAppear` is what
+    /// keeps the popover from drawing every card shut for one frame and then
+    /// snapping one open, and it lets collapsing the last open card stay a
+    /// real state instead of being immediately undone by the default.
+    private enum Expansion: Equatable {
+        case unchosen
+        case allCollapsed
+        case device(String)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch appModel.launchState {
@@ -36,7 +54,13 @@ struct MenuBarView: View {
             } else {
                 VStack(spacing: Theme.Space.snug) {
                     ForEach(appModel.devices) { device in
-                        DeviceControlView(appModel: appModel, device: device)
+                        DeviceControlView(
+                            appModel: appModel,
+                            device: device,
+                            isCollapsible: isAccordion,
+                            isExpanded: isExpanded(device),
+                            onToggleExpanded: { toggleExpansion(device) }
+                        )
                     }
                 }
                 .padding(.horizontal, Theme.Metric.gutter)
@@ -66,6 +90,49 @@ struct MenuBarView: View {
         .onAppear { appModel.donations.popoverDidOpen() }
         .animation(.easeInOut(duration: 0.18), value: appModel.donations.isShowing)
         #endif
+    }
+
+    // MARK: - Accordion
+
+    /// One fan needs no accordion: there is nothing to take turns with, and a
+    /// disclosure chevron on a card that can never collapse is a control that
+    /// does nothing. The behaviour appears exactly when the problem does.
+    private var isAccordion: Bool { appModel.devices.count > 1 }
+
+    private func isExpanded(_ device: DreoDevice) -> Bool {
+        guard isAccordion else { return true }
+        switch expansion {
+        case .unchosen:
+            return device.serialNumber == defaultExpandedSerialNumber
+        case .allCollapsed:
+            return false
+        case .device(let chosen):
+            // A chosen fan that has since been removed, or that belonged to a
+            // previous account, would otherwise leave every card shut with
+            // nothing on screen explaining why.
+            guard appModel.devices.contains(where: { $0.serialNumber == chosen }) else {
+                return device.serialNumber == defaultExpandedSerialNumber
+            }
+            return device.serialNumber == chosen
+        }
+    }
+
+    private func toggleExpansion(_ device: DreoDevice) {
+        withAnimation(.snappy(duration: 0.22)) {
+            expansion = isExpanded(device) ? .allCollapsed : .device(device.serialNumber)
+        }
+    }
+
+    /// Opens on the fan you last touched.
+    ///
+    /// `lastSelectedDeviceSerialNumber` is already what the global hotkey and
+    /// a device-less URL trigger aim at, so expanding the same one makes "the
+    /// fan Windbar is currently about" a single idea rather than two that
+    /// happen to usually agree.
+    private var defaultExpandedSerialNumber: String? {
+        let lastUsed = appModel.settings.lastSelectedDeviceSerialNumber
+        return appModel.devices.first { $0.serialNumber == lastUsed }?.serialNumber
+            ?? appModel.devices.first?.serialNumber
     }
 
     private var footer: some View {

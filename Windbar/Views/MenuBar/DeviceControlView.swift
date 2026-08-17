@@ -9,6 +9,12 @@ import SwiftUI
 struct DeviceControlView: View {
     let appModel: AppModel
     let device: DreoDevice
+    /// Accordion state, owned by `MenuBarView` since only it can know which
+    /// other cards must close. False only when this is the sole fan, where
+    /// there is nothing to take turns with.
+    var isCollapsible = false
+    var isExpanded = true
+    var onToggleExpanded: () -> Void = {}
 
     @Environment(\.colorScheme) private var scheme
     @State private var showsPreferences = false
@@ -27,7 +33,7 @@ struct DeviceControlView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.roomy) {
-            if let mode = presetEditing {
+            if let mode = presetEditing, isExpanded {
                 editor(for: mode)
             } else {
                 cardContent
@@ -39,6 +45,12 @@ struct DeviceControlView: View {
                 .fill(cardFill)
         )
         .opacity(cardOpacity)
+        // An editor left open on a card that gets collapsed would otherwise
+        // still be there, mid-edit, whenever the card is expanded again,
+        // which is not what closing something looks like.
+        .onChange(of: isExpanded) { _, expanded in
+            if !expanded { presetEditing = nil }
+        }
         .animation(.easeOut(duration: 0.18), value: device.isOn)
         .animation(.easeOut(duration: 0.18), value: device.isOnline)
         .animation(.snappy(duration: 0.2), value: presetEditing == nil)
@@ -53,6 +65,13 @@ struct DeviceControlView: View {
     private var cardContent: some View {
         header
 
+        if isExpanded {
+            expandedContent
+        }
+    }
+
+    @ViewBuilder
+    private var expandedContent: some View {
         if !device.isOnline {
             Text("This device is offline. Check it has power and is in range of your WiFi.")
                 .font(Theme.Font.caption)
@@ -132,6 +151,11 @@ struct DeviceControlView: View {
         // The editor is the focused thing on screen while it is open, so it
         // never inherits the dimming that says "this fan is off".
         if presetEditing != nil { return 1 }
+        // A collapsed row is one line carrying the only state that fan is
+        // showing at all. Dimming it the way a full card can afford to be
+        // dimmed would make the fans you are not currently adjusting the
+        // hardest ones to read, which is backwards.
+        if !isExpanded { return device.isOnline ? 1 : 0.7 }
         if !device.isOnline { return 0.55 }
         return device.isOn ? 1 : 0.72
     }
@@ -151,6 +175,9 @@ struct DeviceControlView: View {
     private var header: some View {
         DeviceHeaderView(
             device: device,
+            isCollapsible: isCollapsible,
+            isExpanded: isExpanded,
+            onToggleExpanded: onToggleExpanded,
             onCopyTriggerLink: copyTriggerLink,
             onCopyDeviceReport: copyDeviceReport,
             onRemove: confirmRemoval,
