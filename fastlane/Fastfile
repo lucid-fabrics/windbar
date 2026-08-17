@@ -117,6 +117,34 @@ DONATION_LINK_NEEDLE = 'dRmfZg2K7aTOcD0dMMgYU00'
 # a rejection, and a GitHub build missing it ships an app that can never
 # update and never says so.
 #
+# Submit to Apple's notary service and insist it actually came back Accepted.
+#
+# `notarytool submit --wait` exits 0 for a REJECTED submission. It reports
+# "status: Invalid" on stdout and returns success, so a plain sh() sails
+# straight past it into `stapler staple`, which then fails with "CloudKit
+# query ... failed due to Record not found" - i.e. the one message that says
+# nothing whatsoever about why Apple refused the build. That is exactly what
+# happened on the first Sparkle release, and it cost far more time to diagnose
+# than the underlying problem deserved.
+#
+# So: parse the status, and when it is anything but Accepted, pull the log
+# Apple actually wrote and print it before failing. The log names the offending
+# binary and the reason, which for a notarization failure is the whole answer.
+def notarize!(path, notary)
+  out = sh("xcrun notarytool submit #{path.shellescape} #{notary} --wait --timeout 30m", log: true)
+  status = out[/^\s*status:\s*(.+)$/, 1].to_s.strip
+  return if status == 'Accepted'
+
+  id = out[/^\s*id:\s*(\S+)/, 1]
+  UI.error("Notarization came back '#{status}' for #{File.basename(path)}.")
+  if id
+    UI.error('Apple\'s notarization log follows. It names the file and the reason.')
+    sh("xcrun notarytool log #{id.shellescape} #{notary}", error_callback: ->(_) {})
+  end
+  UI.user_error!("Apple refused to notarize #{File.basename(path)} (status: #{status}). " \
+                 'Nothing was published. See the log above for the offending binary.')
+end
+
 # Two independent signals. The framework is what Apple's automated checks
 # would see; the link is what would actually crash or work at runtime. A
 # build with one and not the other is broken either way, so both are asked.
@@ -485,7 +513,7 @@ platform :mac do
       # needs network. Doing the app too makes it work offline.
       UI.important 'Notarizing the app'
       sh("ditto -c -k --keepParent #{app.shellescape} #{out.shellescape}/Windbar.zip")
-      sh("xcrun notarytool submit #{out.shellescape}/Windbar.zip #{notary} --wait --timeout 30m")
+      notarize!("#{out}/Windbar.zip", notary)
       sh("xcrun stapler staple #{app.shellescape}")
 
       dmg = "#{out}/Windbar-#{version}.dmg"
@@ -497,7 +525,7 @@ platform :mac do
       sh("codesign --sign 'Developer ID Application' --timestamp #{dmg.shellescape}")
 
       UI.important 'Notarizing the disk image'
-      sh("xcrun notarytool submit #{dmg.shellescape} #{notary} --wait --timeout 30m")
+      notarize!(dmg, notary)
       sh("xcrun stapler staple #{dmg.shellescape}")
       sh("xcrun stapler validate #{dmg.shellescape}")
       # The real test: would Gatekeeper let a downloader open this?
