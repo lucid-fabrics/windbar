@@ -252,10 +252,37 @@ jobs:
           AUTH="Authorization: Bearer ${GH_RELEASE_TOKEN}"
           TAG="v$VERSION"
 
+          # What people read on the download page. Anything specific to this
+          # version lives in docs/release-notes/<version>.md; the install lines
+          # underneath never change, so they stay here rather than being
+          # retyped every release.
+          #
+          # The filename carries the version deliberately. A single notes file
+          # that someone forgot to update would quietly ship the previous
+          # release's text, and "you will have to sign in again" is exactly the
+          # kind of sentence that must not appear on a release where it is not
+          # true. A version that has no file just gets the install lines.
+          #
+          # Built with python rather than shell interpolation because the notes
+          # are arbitrary prose: a quote or a newline in them would produce
+          # invalid JSON and a confusing API error at the worst possible moment.
+          BODY=$(VERSION="$VERSION" python3 <<'PY'
+          import json, os, sys
+          path = f"docs/release-notes/{os.environ['VERSION']}.md"
+          notes = open(path).read().strip() if os.path.exists(path) else ''
+          print(f"release notes: {path if notes else 'none, using the generic body'}",
+                file=sys.stderr)
+          install = ('Signed and notarized by Apple. Download the DMG, drag Windbar to '
+                     'Applications, open it.\n\nFree, and the same app that is on the Mac App '
+                     'Store. This copy updates itself: Check for Updates in the menu.')
+          print(json.dumps('\n\n'.join(p for p in (notes, install) if p)))
+          PY
+          )
+
           ID=$(curl -sf -H "$AUTH" "$API/releases/tags/$TAG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' 2>/dev/null || true)
           if [ -z "$ID" ]; then
             ID=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" "$API/releases" \
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"Windbar $VERSION\",\"body\":\"Signed and notarized by Apple. Download the DMG, drag Windbar to Applications, open it.\\n\\nFree. The App Store build is the same app if you would rather get updates automatically.\",\"draft\":false,\"prerelease\":false}" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"Windbar $VERSION\",\"body\":$BODY,\"draft\":false,\"prerelease\":false}" \
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
             echo "created release $TAG"
           else
