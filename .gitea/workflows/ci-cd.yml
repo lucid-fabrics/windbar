@@ -220,6 +220,10 @@ jobs:
           GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           GH_REPO: lucid-fabrics/windbar
           CI_PIPELINE_NUMBER: ${{ github.run_number }}
+          # Signs the appcast. Every installed copy verifies an update against
+          # the public half baked into it, so without this the release would
+          # publish an update that nobody can install.
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -eo pipefail
           export RBENV_ROOT="$HOME/.rbenv"
@@ -264,5 +268,21 @@ jobs:
             --data-binary @"$DMG" \
             "https://uploads.github.com/repos/${GH_REPO}/releases/$ID/assets?name=Windbar-$VERSION.dmg" \
             > /dev/null
-          echo "=== published $DMG to github.com/${GH_REPO}/releases/tag/$TAG ==="
+
+          # The update feed, next to the DMG it describes. Installed copies
+          # fetch it from releases/latest/download/appcast.xml, which always
+          # resolves to the newest release, so the URL baked into every build
+          # never changes. Without this asset the DMG still installs by hand
+          # but no existing copy ever learns the release happened.
+          APPCAST="build/dmg/appcast/appcast.xml"
+          [ -f "$APPCAST" ] || { echo "no appcast at $APPCAST"; exit 1; }
+          OLD_AC=$(curl -sf -H "$AUTH" "$API/releases/$ID/assets" \
+            | python3 -c "import json,sys; print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='appcast.xml'), ''))" || true)
+          [ -n "$OLD_AC" ] && curl -sf -X DELETE -H "$AUTH" "$API/releases/assets/$OLD_AC" > /dev/null
+          curl -sf -X POST -H "$AUTH" -H "Content-Type: application/xml" \
+            --data-binary @"$APPCAST" \
+            "https://uploads.github.com/repos/${GH_REPO}/releases/$ID/assets?name=appcast.xml" \
+            > /dev/null
+
+          echo "=== published $DMG + appcast to github.com/${GH_REPO}/releases/tag/$TAG ==="
           echo "=== published $(git rev-parse --short HEAD) to github.com/${GH_REPO} ==="

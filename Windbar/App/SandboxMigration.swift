@@ -20,6 +20,21 @@ import os
 ///
 /// Compiled only into the direct-download build. The App Store build keeps
 /// its sandbox and its container, and must never touch either path.
+///
+/// What this deliberately does NOT carry across is the Dreo password. That
+/// lives in the login Keychain rather than in preferences, and a Keychain
+/// item's ACL is tied to the signature of the app that created it. The two
+/// builds are signed with different certificates, so macOS treats them as
+/// different applications: moving between them produces a "Windbar wants to
+/// use your confidential information" prompt, or the item simply is not
+/// offered at all.
+///
+/// Left alone on purpose. Sharing it means either a shared Keychain access
+/// group, which widens access to a real password for everyone including App
+/// Store users, or asking for the login Keychain password to copy it.
+/// Signing in to Dreo once is the smaller ask, and `loadCredentials` already
+/// returns nil and lands on the login screen, so the worst case is a login
+/// prompt rather than anything broken. Worth a line in the release notes.
 enum SandboxMigration {
     private static let logger = Logger(subsystem: "com.lucidfabrics.windbar", category: "SandboxMigration")
 

@@ -504,10 +504,71 @@ platform :mac do
       sh("spctl -a -vvv -t install #{dmg.shellescape}")
 
       UI.success("Notarized #{dmg}")
+      generate_update_appcast(dmg: dmg, version: version, out: out)
       dmg
     ensure
       FileUtils.rm_f(api_key_path)
     end
+  end
+
+  # Writes the appcast: the XML feed installed copies poll to learn a newer
+  # version exists, with this DMG's signature and size in it.
+  #
+  # Signed with the private half of the key whose public half is baked into
+  # every build. That signature is the whole security model of the updater: it
+  # is what makes a hijacked download or a spoofed release fail to install
+  # rather than silently replacing the app with someone else's.
+  private_lane :generate_update_appcast do |options|
+    dmg     = options[:dmg]
+    version = options[:version]
+    out     = options[:out]
+
+    private_key = ENV['SPARKLE_ED_PRIVATE_KEY'].to_s.strip
+    UI.user_error!('SPARKLE_ED_PRIVATE_KEY is not set, so the appcast cannot be signed. Every ' \
+                   'installed copy would refuse the resulting update.') if private_key.empty?
+
+    tool = Dir.glob(File.expand_path(
+      '~/Library/Developer/Xcode/DerivedData/Windbar-*/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast'
+    )).first
+    UI.user_error!('generate_appcast not found. It ships inside the resolved Sparkle package, ' \
+                   'so the build must run before this.') unless tool
+
+    # A directory holding ONLY this release's DMG. generate_appcast scans a
+    # whole directory and lists everything it finds, so pointing it at the
+    # build output would rebuild the feed from whatever old artifacts happen
+    # to be lying around on the runner.
+    feed_dir = "#{out}/appcast"
+    FileUtils.rm_rf(feed_dir)
+    FileUtils.mkdir_p(feed_dir)
+    FileUtils.cp(dmg, feed_dir)
+
+    # Each release keeps its assets under its own tag, so the download prefix
+    # is per-version. The feed itself is fetched from releases/latest, which
+    # always resolves to the newest release, so the URL baked into the app
+    # never has to change.
+    prefix = "https://github.com/#{ENV.fetch('GH_REPO', 'lucid-fabrics/windbar')}/releases/download/v#{version}/"
+
+    # Key on stdin, never as an argument: arguments are visible to anyone who
+    # can list processes on the runner, and `log: false` keeps it out of the
+    # CI transcript too.
+    sh("printf '%s' #{private_key.shellescape} | #{tool.shellescape} " \
+       "--ed-key-file - " \
+       "--download-url-prefix #{prefix.shellescape} " \
+       "--link https://github.com/#{ENV.fetch('GH_REPO', 'lucid-fabrics/windbar')} " \
+       "--maximum-versions 1 " \
+       "#{feed_dir.shellescape}", log: false)
+
+    appcast = "#{feed_dir}/appcast.xml"
+    UI.user_error!("generate_appcast produced no appcast at #{appcast}") unless File.exist?(appcast)
+
+    # Prove the feed describes THIS release and carries a signature, rather
+    # than shipping a feed that parses but offers nothing or offers something
+    # unverifiable.
+    xml = File.read(appcast)
+    UI.user_error!("Appcast does not mention #{version}") unless xml.include?(version)
+    UI.user_error!('Appcast has no EdDSA signature') unless xml.include?('edSignature')
+    UI.success("Appcast written for #{version}")
+    appcast
   end
 
   desc 'Attach the newest processed build to the current version.'
