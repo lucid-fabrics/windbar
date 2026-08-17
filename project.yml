@@ -15,6 +15,15 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.2.0
+  # Attached to WindbarDirect only. A package dependency cannot be made
+  # conditional per configuration, so a single shared target would embed
+  # Sparkle.framework in the App Store archive and link it from the main
+  # binary (verified: it did). Apple rejects apps carrying a self-updater, so
+  # the split is what makes the store build provably free of it rather than
+  # merely not calling it.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.9.0
 targets:
   Windbar:
     type: application
@@ -45,7 +54,7 @@ targets:
         # flag anyway. Changing either of those without understanding why
         # reopens a real path to a 3.1.1 rejection, not a binary one.
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
         # Scoped to this target on purpose. Setting PROVISIONING_PROFILE_SPECIFIER
         # globally on the xcodebuild command line also hits the SwiftPM targets,
         # and KeyboardShortcuts fails with "does not support provisioning profiles".
@@ -80,6 +89,72 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.device.bluetooth: true
+  # The GitHub download. Same product name, same bundle id, same source
+  # files as the target above: `sources` is one shared line, so the two
+  # cannot drift on file membership, and the only differences are the ones
+  # listed here deliberately.
+  #
+  # It exists because Sparkle cannot be excluded from a configuration, only
+  # from a target. A self-updater in the App Store binary is a rejection, so
+  # this is what makes the store build provably free of it. The two are never
+  # in the same archive, so sharing the bundle id is safe and is what keeps a
+  # user's settings and shortcuts in place if they move between them.
+  WindbarDirect:
+    type: application
+    platform: macOS
+    sources:
+      - path: Windbar
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_NAME: Windbar
+        PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Every configuration, unlike the store target's Debug-only flags:
+        # this target only ever ships outside the App Store, so there is no
+        # configuration of it that should lack the updater.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
+        # Overridable on the xcodebuild command line, which is how the local
+        # end-to-end test points a build at a throwaway feed without editing
+        # any file.
+        SU_FEED_URL: https://github.com/lucid-fabrics/windbar/releases/latest/download/appcast.xml
+        # Replaced by the real public key in step 4. An empty value makes
+        # Sparkle refuse every update, which is the correct failure: refusing
+        # to install is safe, installing something unverified is not.
+        SU_PUBLIC_ED_KEY: ""
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Developer ID Application
+          PROVISIONING_PROFILE_SPECIFIER: ""
+    info:
+      path: config/Info-Direct.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        ITSAppUsesNonExemptEncryption: false
+        NSSupportsAutomaticTermination: true
+        NSSupportsSuddenTermination: false
+        NSBluetoothAlwaysUsageDescription: "Windbar uses Bluetooth to pair new Dreo fans onto your WiFi network."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.lucidfabrics.windbar
+            CFBundleURLSchemes:
+              - windbar
+        # Sparkle reads these three. The feed is where it looks for new
+        # versions; the key is what it verifies them against, so a forged
+        # update signed by anyone else is rejected.
+        SUFeedURL: $(SU_FEED_URL)
+        SUPublicEDKey: $(SU_PUBLIC_ED_KEY)
+        SUEnableAutomaticChecks: true
+    # No sandbox: a sandboxed app cannot replace itself in /Applications, so
+    # the updater could not install anything. See config/Windbar-Direct.entitlements.
+    entitlements:
+      path: config/Windbar-Direct.entitlements
+
   WindbarTests:
     type: bundle.unit-test
     platform: macOS
@@ -97,7 +172,7 @@ targets:
         # nothing and a plain `xcodebuild test` reports a green run that never
         # touched the donation gate.
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
 schemes:
   Windbar:
     build:
@@ -107,5 +182,13 @@ schemes:
     test:
       targets:
         - WindbarTests
+    run:
+      config: Debug
+  # Built by `fastlane mac release_dmg`, and by CI on every PR so a compile
+  # break in this target surfaces then rather than in the middle of a release.
+  Windbar-Direct:
+    build:
+      targets:
+        WindbarDirect: all
     run:
       config: Debug

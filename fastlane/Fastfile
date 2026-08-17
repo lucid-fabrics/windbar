@@ -30,6 +30,9 @@ default_platform(:mac)
 APP_IDENTIFIER   = 'com.lucidfabrics.windbar'
 TEAM_ID          = 'KRPUAN3FFA'
 SCHEME           = 'Windbar'
+# The GitHub download builds a different target, because Sparkle can be kept
+# out of a target but not out of a configuration. See project.yml.
+DIRECT_SCHEME    = 'Windbar-Direct'
 PROJECT          = 'Windbar.xcodeproj'
 PROFILE_NAME     = 'Windbar MAS'
 
@@ -105,6 +108,31 @@ end
 # and unique to this app: it cannot vanish that way without the real payment
 # link breaking too.
 DONATION_LINK_NEEDLE = 'dRmfZg2K7aTOcD0dMMgYU00'
+
+# Is the updater inside this .app?
+#
+# Apple rejects apps that update themselves, so Sparkle must be absent from
+# the App Store build and present in the GitHub one. Both halves are checked,
+# because each failure is silent in its own way: a store build carrying it is
+# a rejection, and a GitHub build missing it ships an app that can never
+# update and never says so.
+#
+# Two independent signals. The framework is what Apple's automated checks
+# would see; the link is what would actually crash or work at runtime. A
+# build with one and not the other is broken either way, so both are asked.
+def sparkle_present?(app)
+  binary = File.join(app, 'Contents/MacOS/Windbar')
+  UI.user_error!("No binary at #{binary}") unless File.exist?(binary)
+
+  framework = Dir.exist?(File.join(app, 'Contents/Frameworks/Sparkle.framework'))
+  linked    = `otool -L #{app.shellescape}/Contents/MacOS/Windbar 2>/dev/null`.include?('Sparkle.framework')
+
+  if framework != linked
+    UI.user_error!("Half-linked Sparkle in #{app}: framework embedded=#{framework}, " \
+                   "binary links it=#{linked}. Neither shipping nor rejecting cleanly.")
+  end
+  framework
+end
 
 def donation_code_present?(app)
   binary = File.join(app, 'Contents/MacOS/Windbar')
@@ -222,15 +250,32 @@ platform :mac do
   desc 'PR gate: build and run the unit tests. No signing, no upload.'
   lane :build_check do
     generate_project
+    adhoc = 'CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" ' \
+            'PROVISIONING_PROFILE_SPECIFIER=""'
     run_tests(
       project:     PROJECT,
       scheme:      SCHEME,
       destination: 'platform=macOS',
       # Ad-hoc signing keeps the gate independent of certificates and keychains,
       # so a PR from anywhere can be tested.
-      xcargs: 'CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" ' \
-              'PROVISIONING_PROFILE_SPECIFIER=""',
+      xcargs: adhoc,
     )
+
+    # The GitHub target compiles too. Nothing else on a PR touches it: the
+    # tests run against the App Store target, and `release_dmg` only runs on
+    # a push to main. Without this, a compile break in the updater or in any
+    # `#if WINDBAR_DIRECT` code would stay invisible until the middle of a
+    # release, which is the worst possible moment to discover it.
+    # `set -o pipefail` and no `|| true`, unlike release_dmg: a compile break
+    # here has to fail the job rather than be discovered by a later check.
+    # xcbeautify is only for readability, so its absence must not fail a build
+    # that otherwise succeeded.
+    pretty = system('command -v xcbeautify > /dev/null') ? ' | xcbeautify' : ''
+    sh("set -o pipefail && xcodebuild build " \
+       "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
+       "-scheme #{DIRECT_SCHEME} -configuration Debug " \
+       "-destination 'platform=macOS' #{adhoc}#{pretty}")
+    UI.success("#{DIRECT_SCHEME} compiles")
   end
 
   desc 'Build, sign and upload a build to App Store Connect. Does not submit for review.'
@@ -293,6 +338,17 @@ platform :mac do
                      'never be set for the `release` lane: guideline 3.1.1 forbids it.')
     end
 
+    # Same proof, for the updater. This is what the two-target split in
+    # project.yml exists to guarantee, and guaranteeing it by construction is
+    # not the same as checking it: a stray `- package: Sparkle` on the wrong
+    # target would put it back with nothing else complaining.
+    if sparkle_present?(app)
+      UI.user_error!('Sparkle is present in the App Store build. Apple rejects apps that update ' \
+                     'themselves; the `release` lane must build the Windbar target, never ' \
+                     'WindbarDirect.')
+    end
+    UI.success('App Store build carries neither donation code nor an updater')
+
     write_review_information
 
     upload_to_app_store(
@@ -349,36 +405,23 @@ platform :mac do
     # command line reaches every target, which is why the profile is blanked here
     # rather than left at the "Windbar MAS" value project.yml sets for Release.
     #
-    # Two things make this build differ from the App Store one.
+    # A different TARGET, not the same one with overrides. Sparkle cannot be
+    # excluded from a configuration, only from a target, so a shared target
+    # embedded Sparkle.framework in the App Store archive and linked it from
+    # the main binary. Apple rejects apps carrying a self-updater, so
+    # WindbarDirect exists to make the store build provably free of it.
     #
-    # WINDBAR_DONATIONS compiles in the donation prompt, which must never
-    # exist in the App Store binary: guideline 3.1.1 forbids pointing users at
-    # outside payment. WINDBAR_DIRECT compiles in everything else that only
-    # makes sense outside the store, starting with the import that rescues a
-    # previous sandboxed install's settings.
-    #
-    # And this build is NOT sandboxed. The sandbox is an App Store
-    # requirement, not a Gatekeeper one, and a sandboxed app is not permitted
-    # to replace itself in /Applications, so an updater cannot work inside it.
-    # What actually protects users here is the Developer ID signature and
-    # notarization, both verified below. Dropping the sandbox also moves where
-    # macOS keeps the app's preferences, which is why `SandboxMigration` runs
-    # before anything reads them.
-    entitlements = File.expand_path('../config/Windbar-Direct.entitlements', __dir__)
-    UI.user_error!("No direct-download entitlements at #{entitlements}") unless File.exist?(entitlements)
-
+    # Everything that used to be an override here now lives in that target's
+    # own definition in project.yml: the unsandboxed entitlements, both
+    # compilation flags, the Developer ID identity and the Sparkle keys. Only
+    # the version numbers still come from the command line.
     sh("set -o pipefail && xcodebuild archive " \
        "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
-       "-scheme #{SCHEME} -configuration Release " \
+       "-scheme #{DIRECT_SCHEME} -configuration Release " \
        "-archivePath #{archive.shellescape} -destination 'generic/platform=macOS' " \
-       "CODE_SIGN_STYLE=Manual " \
-       "CODE_SIGN_IDENTITY='Developer ID Application' " \
-       "PROVISIONING_PROFILE_SPECIFIER='' " \
-       "CODE_SIGN_ENTITLEMENTS=#{entitlements.shellescape} " \
        "DEVELOPMENT_TEAM=#{TEAM_ID} " \
        "MARKETING_VERSION=#{version} CURRENT_PROJECT_VERSION=#{build_number} " \
        "OTHER_CODE_SIGN_FLAGS='--timestamp' " \
-       "SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT' " \
        "| xcbeautify || true")
 
     app = "#{archive}/Products/Applications/Windbar.app"
@@ -387,24 +430,37 @@ platform :mac do
     signer = sh("codesign -dv --verbose=2 #{app.shellescape} 2>&1 | grep Authority | head -1", log: false)
     UI.user_error!("App is not Developer ID signed: #{signer}") unless signer.include?('Developer ID Application')
 
-    # Verify the sandbox actually came off, rather than trusting that the
-    # CODE_SIGN_ENTITLEMENTS override above was honoured. A sandboxed build
-    # would ship an updater that silently cannot install anything, and the
-    # only symptom users would ever see is that updates never apply. Read
-    # what is baked into the signature, which is the only thing that counts
-    # at runtime.
+    # Verify the sandbox actually came off, rather than trusting the target
+    # definition. A sandboxed build would ship an updater that silently
+    # cannot install anything, and the only symptom users would ever see is
+    # that updates never apply. Read what is baked into the signature, which
+    # is the only thing that counts at runtime.
     signed_entitlements = sh("codesign -d --entitlements - --xml #{app.shellescape} 2>/dev/null " \
                              "| plutil -convert xml1 -o - -", log: false)
     if signed_entitlements.include?('com.apple.security.app-sandbox')
       UI.user_error!('The direct-download build is sandboxed. Its updater cannot replace the app ' \
-                     'from inside a sandbox, so CODE_SIGN_ENTITLEMENTS did not take effect.')
+                     'from inside a sandbox, so the WindbarDirect entitlements did not take effect.')
     end
-    UI.success('Direct-download build is unsandboxed, as its updater requires')
+
+    unless sparkle_present?(app)
+      UI.user_error!('Sparkle is missing from the DMG build. This lane must build the ' \
+                     'WindbarDirect target, whose whole purpose is carrying the updater.')
+    end
+
+    # An empty SUPublicEDKey makes Sparkle refuse every update. That is the
+    # safe failure rather than the dangerous one, but it means shipping an app
+    # whose updater can never do anything, so catch it at build time instead
+    # of discovering it when a release fails to reach anybody.
+    key = sh("/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' " \
+             "#{app.shellescape}/Contents/Info.plist 2>/dev/null || true", log: false).strip
+    UI.user_error!('SUPublicEDKey is empty in the DMG build. Sparkle would reject every update ' \
+                   'it is ever offered. Set SU_PUBLIC_ED_KEY on the WindbarDirect target.') if key.empty?
 
     unless donation_code_present?(app)
       UI.user_error!('Donation code is missing from the DMG build. WINDBAR_DONATIONS is set, so ' \
                      'the compiler stripped it: nothing in the UI references DonationCoordinator.')
     end
+    UI.success("Direct build: unsandboxed, Sparkle present, update key #{key[0, 8]}…")
 
     api_key_path = "#{out}/asc.p8"
     File.write(api_key_path, ENV.fetch('APP_STORE_CONNECT_API_KEY_CONTENT'))
