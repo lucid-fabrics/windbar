@@ -124,6 +124,17 @@ def sparkle_present?(app)
   binary = File.join(app, 'Contents/MacOS/Windbar')
   UI.user_error!("No binary at #{binary}") unless File.exist?(binary)
 
+  # Same reason donation_code_present? refuses these: an Xcode 16 Debug build
+  # splits its code into a companion .debug.dylib and leaves a thin launcher
+  # stub at the binary path, so the stub links nothing and this would report a
+  # half-linked build. An archive merges them, and archives are all either
+  # caller ever passes.
+  dylib = File.join(app, 'Contents/MacOS/Windbar.debug.dylib')
+  if File.exist?(dylib)
+    UI.user_error!("#{dylib} exists, so this is a split Debug build rather than an archive. " \
+                   'Its launcher stub links nothing, so no conclusion about Sparkle is possible.')
+  end
+
   framework = Dir.exist?(File.join(app, 'Contents/Frameworks/Sparkle.framework'))
   linked    = `otool -L #{app.shellescape}/Contents/MacOS/Windbar 2>/dev/null`.include?('Sparkle.framework')
 

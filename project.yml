@@ -125,6 +125,16 @@ targets:
         # to install is safe, installing something unverified is not.
         SU_PUBLIC_ED_KEY: ""
       configs:
+        # Both targets build a product called Windbar.app into the same
+        # DerivedData directory, so locally they overwrite each other and an
+        # incremental build happily serves whichever one happens to be there
+        # already. That is invisible and deeply confusing: you test the App
+        # Store build believing it is this one. Debug gets a distinct name so
+        # the two can coexist while working on them; Release keeps Windbar,
+        # since that is the name that ships, and the release lanes archive to
+        # separate paths anyway.
+        Debug:
+          PRODUCT_NAME: Windbar-Direct
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Developer ID Application

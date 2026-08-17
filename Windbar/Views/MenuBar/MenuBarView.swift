@@ -160,6 +160,18 @@ struct MenuBarView: View {
             }
             .keyboardShortcut(",")
 
+            #if WINDBAR_DIRECT
+            // Direct-download build only: the App Store updates its own copy,
+            // and shipping a second way to do it there is a rejection. This
+            // is for anyone who would rather look than wait for the scheduled
+            // check; Sparkle owns everything after the click, including the
+            // release notes, the download and the restart.
+            HoverRow(icon: "arrow.down.circle", title: "Check for Updates…") {
+                NSApp.activate(ignoringOtherApps: true)
+                appModel.updates.checkForUpdates()
+            }
+            #endif
+
             #if WINDBAR_DONATIONS
             // Always here, independent of the earned-ask gating below: a
             // misclicked "No thanks" or a change of heart six months after

@@ -44,6 +44,14 @@ final class AppModel {
     let donations = DonationCoordinator()
     #endif
 
+    #if WINDBAR_DIRECT
+    /// Direct-download build only. Held here so it is constructed once for
+    /// the app's lifetime: Sparkle's scheduled checks start with it, and a
+    /// controller rebuilt per view would restart that clock every time the
+    /// popover opened. See App/UpdateController.swift.
+    let updates = UpdateController()
+    #endif
+
     @ObservationIgnored let shortcutBinder = DeviceShortcutBinder()
     @ObservationIgnored private var hasLoadedSettings = false
     @ObservationIgnored var settingsSaveTask: Task<Void, Never>?
