@@ -83,7 +83,7 @@ open Windbar.xcodeproj
 
 Press Cmd-R on the `Windbar` scheme. The fan icon appears in the menu bar and there's no Dock
 icon. `Windbar-Direct` is the other scheme, the one that builds the downloadable copy with the
-updater in it; you only need it if you're working on updating itself.
+updater in it; you only need it when working on the updater itself.
 
 Adding or removing a source file means running `xcodegen generate` again, since the project file
 is generated from `project.yml` and nothing is going to notice on your behalf.
@@ -124,6 +124,14 @@ model, in the same shape the server uses for older devices. So `Windbar/Resource
 is that file, cut down to just the controls, with the localisation keys resolved to English. 84
 models, 40 KB. The server's own schema always wins where it sends one; the bundle only fills gaps,
 and an unknown model is left blank rather than borrowing another model's buttons.
+
+Even the stolen template turned out to be incomplete. The same fan has a Turbo mode and a whole
+set of ambient light controls that exist on the hardware and appear nowhere in its template.
+Those were mapped by sending values at a real fan and watching what it did, which is also how I
+learned that its light speed goes 1 to 3 and not 1 to 9 like my first sloppy probe suggested.
+They live in `DeviceTemplateOverrides.json`, a small hand-maintained layer on top of the
+extracted file, so regenerating the big one from a newer app version can't erase what the
+hardware taught us. Every entry carries a note saying where its values came from.
 
 There's a related trap I walked straight into. That template-only device didn't just render
 badly, it **broke decoding entirely and took the whole device list down with it**, so the app
@@ -228,8 +236,8 @@ and dark use different blues: white text needs a deeper blue than dark text does
 If you have a Corsair G-key, a Stream Deck button or a foot pedal, set it to **send a keystroke**
 rather than to launch an application. Macro software swallows the raw key and never passes it on,
 so nothing reaches this app to record, but every one of these tools can emit a normal combination
-instead. Assign the key something like Ctrl-Opt-2, then record that against a fan under More
-Options. From then on it behaves like any other shortcut.
+instead. Assign the key something like Ctrl-Opt-2, then record that combination in the fan's
+Shortcuts list, on the Power row or on a preset. From then on it behaves like any other shortcut.
 
 - **iCUE** - Key Assignments tab, select the key (e.g. G1), set Assignment Type to **Keystroke**,
   not Macro or Launch Application, then remap it to something like Ctrl+Alt+1
