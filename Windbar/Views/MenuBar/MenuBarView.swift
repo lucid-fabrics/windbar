@@ -125,8 +125,8 @@ struct MenuBarView: View {
 
     /// Opens on the fan you last touched.
     ///
-    /// `lastSelectedDeviceSerialNumber` is already what the global hotkey and
-    /// a device-less URL trigger aim at, so expanding the same one makes "the
+    /// `lastSelectedDeviceSerialNumber` is already what a device-less URL
+    /// trigger aims at, so expanding the same one makes "the
     /// fan Windbar is currently about" a single idea rather than two that
     /// happen to usually agree.
     private var defaultExpandedSerialNumber: String? {

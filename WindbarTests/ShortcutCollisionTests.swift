@@ -15,11 +15,33 @@ final class ShortcutCollisionTests: XCTestCase {
         )
 
         let raws = names.map(\.rawValue)
-        XCTAssertTrue(raws.contains(KeyboardShortcuts.Name.toggleFanPower.rawValue))
         XCTAssertTrue(raws.contains("togglePower.SN1"))
         XCTAssertTrue(raws.contains("togglePower.SN2"))
         XCTAssertTrue(raws.contains("preset.\(presetA.id.uuidString)"))
         XCTAssertTrue(raws.contains("preset.\(presetB.id.uuidString)"))
+    }
+
+    /// Every candidate has to be a shortcut the user can see and rebind. A
+    /// global "toggle last-used fan" name used to sit in this list while no
+    /// view offered a recorder for it, so it could never hold a combo, never
+    /// collide, and its only possible appearance was in a collision message
+    /// naming a shortcut the user had never heard of.
+    func test_registry_holdsOnlyPerDeviceAndPresetNames() {
+        let device = DreoDevice(serialNumber: "SN1", deviceName: "Fan 1", model: "X", controlsConf: nil)
+        let preset = DevicePreset(name: "A", values: [:])
+
+        let names = ShortcutRegistry.names(
+            devices: [device],
+            presetsBySerialNumber: ["SN1": [preset]]
+        )
+
+        XCTAssertEqual(names.count, 2, "one power name, one preset name, nothing unassignable")
+        for raw in names.map(\.rawValue) {
+            XCTAssertTrue(
+                raw.hasPrefix("togglePower.") || raw.hasPrefix("preset."),
+                "\(raw) is not a shortcut any view exposes a recorder for"
+            )
+        }
     }
 
     /// Phase 2 of the audit remediation. Presets are deliberately kept in
@@ -49,12 +71,12 @@ final class ShortcutCollisionTests: XCTestCase {
 
     func test_displayDescription_labelsKnownShapes() {
         XCTAssertEqual(
-            KeyboardShortcuts.Name.toggleFanPower.displayDescription,
-            "Power (last used fan)"
+            KeyboardShortcuts.Name.togglePower(deviceSerialNumber: "SN1").displayDescription,
+            "Power"
         )
-        XCTAssertTrue(
-            KeyboardShortcuts.Name.togglePower(deviceSerialNumber: "SN1")
-                .displayDescription.contains("Power")
+        XCTAssertEqual(
+            KeyboardShortcuts.Name.preset(id: UUID()).displayDescription,
+            "another preset"
         )
     }
 }

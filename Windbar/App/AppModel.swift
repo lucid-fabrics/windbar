@@ -70,7 +70,7 @@ final class AppModel {
         self.settingsRepository = settingsRepository
     }
 
-    /// Target for the global hotkey and the URL scheme. An explicit choice
+    /// Target for a `windbar://` URL that names no device. An explicit choice
     /// is honoured even while it's offline, but the automatic fallback skips
     /// unreachable devices so the hotkey acts on one that can respond.
     var lastSelectedOrFirstDevice: DreoDevice? {

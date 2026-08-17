@@ -1,20 +1,15 @@
 import AppKit
 import KeyboardShortcuts
 
-/// Owns the two ways to toggle fan power that don't go through the menu bar
-/// dropdown: the global keyboard shortcut and the `windbar://toggle` URL
-/// scheme (for iCUE's "Launch Application" action, once iCUE is working).
+/// Owns the `windbar://` URL scheme, which is how anything outside the menu
+/// bar dropdown drives a fan: a Stream Deck button, a Corsair G-key, an
+/// Elgato pedal. Keyboard shortcuts are bound per fan by
+/// `DeviceShortcutBinder` instead, from the card that shows them.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appModel: AppModel?
 
     func configure(appModel: AppModel) {
         self.appModel = appModel
-        let model = appModel
-        KeyboardShortcuts.onKeyUp(for: .toggleFanPower) {
-            Task { @MainActor in
-                model.toggleLastSelectedDevicePower()
-            }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

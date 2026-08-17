@@ -88,17 +88,16 @@ struct DeviceControlView: View {
                 ForEach(sections) { section in
                     sectionView(for: section)
                 }
-                // Only once there is something to show. An empty list would
-                // be a heading over nothing, so the invitation to make the
-                // first one lives in More options instead.
-                if !presets.isEmpty {
-                    PresetsSection(
-                        appModel: appModel,
-                        device: device,
-                        presets: presets,
-                        onEdit: { presetEditing = .edit($0) }
-                    )
-                }
+                // Unconditional now that the built-in Power row means the
+                // list is never empty. It used to appear only once a preset
+                // existed, which left the power shortcut discoverable solely
+                // by opening More options and finding it there.
+                ShortcutsSection(
+                    appModel: appModel,
+                    device: device,
+                    presets: presets,
+                    onEdit: { presetEditing = .edit($0) }
+                )
                 preferencesSection
             }
             // Nothing sent to an unreachable device can take effect, so
@@ -218,28 +217,6 @@ struct DeviceControlView: View {
                             )
                         )
                     }
-
-                    // Sits with the fan it controls rather than in a settings
-                    // window, so binding a key never means hunting for which
-                    // row belongs to which device.
-                    // "Toggle Power" rather than a bare "Shortcut": presets
-                    // set a fixed state, this one flips whatever the fan is
-                    // doing, and the label is what tells them apart.
-                    HStack(spacing: Theme.Space.tight) {
-                        Text("Toggle Power")
-                            .font(Theme.Font.body)
-                        Spacer(minLength: Theme.Space.tight)
-                        KeyboardShortcuts.Recorder(
-                            for: .togglePower(deviceSerialNumber: device.serialNumber)
-                        )
-                        .controlSize(.small)
-                    }
-                    // The recorder listens with a local event monitor, which
-                    // only sees keystrokes while this app is active. A menu
-                    // bar popover does not activate its app on its own, so
-                    // without this the recorder opens but never registers the
-                    // key. Activating leaves the popover open.
-                    .onAppear { NSApp.activate(ignoringOtherApps: true) }
 
                     // A device whose schema has no sections has nothing a
                     // preset could capture. Offering the row anyway just

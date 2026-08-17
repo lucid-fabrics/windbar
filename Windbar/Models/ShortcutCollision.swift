@@ -15,7 +15,10 @@ struct ShortcutCollision: Equatable {
 /// these, including the per-fan power toggle and every other preset.
 enum ShortcutRegistry {
     /// Names registered for the global toggle, every device currently on the
-    /// account, and every preset that belongs to one of those devices.
+    /// account, and every preset that belongs to one of those devices. Every
+    /// name here is one a user can actually see and rebind, which is what
+    /// makes "that shortcut is already used by X" an instruction rather than
+    /// a dead end.
     ///
     /// Scoped to `devices`, not to every key `presetsBySerialNumber` happens
     /// to have. Presets are deliberately kept in settings across a sign-out
@@ -29,7 +32,7 @@ enum ShortcutRegistry {
         devices: [DreoDevice],
         presetsBySerialNumber: [String: [DevicePreset]]
     ) -> [KeyboardShortcuts.Name] {
-        var names: [KeyboardShortcuts.Name] = [.toggleFanPower]
+        var names: [KeyboardShortcuts.Name] = []
         for device in devices {
             names.append(.togglePower(deviceSerialNumber: device.serialNumber))
             for preset in presetsBySerialNumber[device.serialNumber] ?? [] {
@@ -64,9 +67,6 @@ extension KeyboardShortcuts.Name {
     /// them decode a `preset.<uuid>` raw value.
     var displayDescription: String {
         let raw = rawValue
-        if raw == KeyboardShortcuts.Name.toggleFanPower.rawValue {
-            return "Power (last used fan)"
-        }
         if raw.hasPrefix("togglePower.") {
             return "Power"
         }
