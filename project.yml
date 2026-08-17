@@ -120,10 +120,15 @@ targets:
         # end-to-end test points a build at a throwaway feed without editing
         # any file.
         SU_FEED_URL: https://github.com/lucid-fabrics/windbar/releases/latest/download/appcast.xml
-        # Replaced by the real public key in step 4. An empty value makes
-        # Sparkle refuse every update, which is the correct failure: refusing
-        # to install is safe, installing something unverified is not.
-        SU_PUBLIC_ED_KEY: ""
+        # The public half of the update signing key. Public by design: it is
+        # what an installed copy checks a downloaded update against, so an
+        # update signed by anyone else is refused. Its private half lives in
+        # the Gitea secret SPARKLE_ED_PRIVATE_KEY and in a password manager,
+        # and nowhere else. Losing it means every installed copy refuses every
+        # future update permanently, because they all verify against this
+        # value; changing it has the same effect, so it must not be rotated
+        # casually.
+        SU_PUBLIC_ED_KEY: bSDWiZhfu6mwnC1QXUldUlQ/axyFimzY7nNtjQbHDns=
       configs:
         # Both targets build a product called Windbar.app into the same
         # DerivedData directory, so locally they overwrite each other and an
