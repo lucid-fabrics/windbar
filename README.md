@@ -16,7 +16,7 @@ way, the first public write-up of how Dreo's Bluetooth pairing actually works.
 </p>
 
 <p align="center">
-  <img src="docs/menubar.png" width="320" alt="The Windbar menu bar popover showing two fans with mode, speed and oscillation controls">
+  <img src="docs/menubar.png" width="320" alt="The Windbar menu bar popover: one fan expanded with mode, speed and oscillation controls and a Power keyboard shortcut, a second fan collapsed to one line">
 </p>
 
 ## Why this exists
@@ -26,26 +26,40 @@ I wanted to turn a fan on from my keyboard. That's it. That was the whole idea.
 The official route is the Dreo phone app, which is fine but means picking up a phone.
 [Home Assistant](https://github.com/JeffSteinbok/hass-dreo) covers the cloud API nicely if you
 already run it, but I didn't want a whole home automation stack to toggle a fan. So this is a
-menu bar icon: click it, your fans are there, click again to turn one off. There's a global
-hotkey too, so you don't even have to click.
+menu bar icon: click it, your fans are there, click again to turn one off. Give a fan a key and
+you don't even have to click.
 
 It grew a bit from there.
 
 ## What it does
 
 - Power, speed, oscillation, mode and the fiddly per-device preferences like Child Lock
-- A global hotkey that toggles your last-used fan from anywhere
-- A `windbar://toggle` URL, so Shortcuts or a Stream Deck or whatever can trigger it, and
-  `windbar://toggle?device=<serial>` to aim at one specific fan
+- **Presets.** Get a fan how you like it, save that as "Desk" or "Night", and bind a key to it.
+  The key puts the fan back into that shape and turns it on. Press it again while the fan is
+  already in that shape and it turns off, so one key is the whole round trip
+- Every fan has a **Shortcuts** list: a Power key, plus a key for each of its presets
+- Fans collapse to a single line each, so having five of them doesn't fill the screen
+- Ambient light, colour and display controls on the models that have them
+- `windbar://` URLs, so Shortcuts or a Stream Deck or a script can trigger any of it
 - **Pairs a brand new fan onto your WiFi over Bluetooth, with no phone involved**
 - Offline fans are shown as offline instead of pretending to work
 - Your Dreo password lives in the Keychain and nowhere else
 
 ## Getting it
 
-Windbar ships through the Mac App Store. Needs macOS 14 or later.
+Needs macOS 14 or later. Two ways to get it, same app:
 
-> The App Store listing is not live yet. Until it is, build from source with the steps below.
+| | Mac App Store | Download here |
+|---|---|---|
+| Updates | through the App Store | in-app, "Check for Updates…" |
+| Sandboxed | yes | no, the updater needs to replace the app |
+| Get it | listing not live yet | [Releases](https://github.com/lucid-fabrics/windbar/releases/latest) |
+
+The download is signed and notarised, so it opens without Gatekeeper arguing. Both builds share
+a bundle id and read the same settings, so moving from one to the other keeps your presets and
+keys. It does not carry your Dreo password across, because the Keychain ties a saved password to
+the certificate that saved it and the two builds are signed differently. You sign in once more,
+and that's the whole cost of switching.
 
 Windbar is an independent project. It is not made by, endorsed by, or affiliated with Dreo. It
 simply works with Dreo smart fans.
@@ -67,7 +81,12 @@ xcodegen generate
 open Windbar.xcodeproj
 ```
 
-Press Cmd-R. The fan icon appears in the menu bar and there's no Dock icon.
+Press Cmd-R on the `Windbar` scheme. The fan icon appears in the menu bar and there's no Dock
+icon. `Windbar-Direct` is the other scheme, the one that builds the downloadable copy with the
+updater in it; you only need it if you're working on updating itself.
+
+Adding or removing a source file means running `xcodegen generate` again, since the project file
+is generated from `project.yml` and nothing is going to notice on your behalf.
 
 ## How it works
 
@@ -185,8 +204,15 @@ Windbar/
 ```
 
 Swift 6 with strict concurrency on. `@MainActor @Observable` for app state, actors for anything
-doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 59 tests,
+doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 150 tests,
 none of which touch the network or the real Keychain.
+
+Two app targets are generated from `project.yml`, sharing one `sources` line so they can't drift
+apart on file membership. They differ in exactly two ways: the download build drops the sandbox
+and links [Sparkle](https://sparkle-project.org) for updates, and the App Store build does
+neither. That split exists because a Swift package dependency can be excluded from a target but
+not from a configuration, and an App Store binary carrying a self-updater is a rejection. Two
+targets is what makes the store build provably free of it rather than merely not calling it.
 
 The CBOR encoder is about 250 lines and hand-rolled, because pulling in a dependency to write
 maps and integers felt worse than writing it. One thing it does deliberately: **map keys keep
@@ -218,13 +244,15 @@ For scripting and automation, each control is also reachable by URL:
 
 ```bash
 open "windbar://toggle?device=<serial>"                          # power
+open "windbar://preset?device=<serial>&preset=<uuid>"            # fire a preset
 open "windbar://set?device=<serial>&key=windlevel&value=9"       # exact speed
 open "windbar://adjust?device=<serial>&key=windlevel&delta=1"    # one step faster
 ```
 
-`Copy Trigger Link` in a fan's menu puts its URL on the clipboard. `adjust` clamps to the range
-the fan itself publishes, and `key` accepts any command from that device's schema, so `windtype`
-and `shakehorizon` work the same way. Without `device`, `toggle` hits whichever fan you used last.
+`Copy Trigger Link` in a fan's menu puts its URL on the clipboard, and a preset's own menu does
+the same for its `windbar://preset` link. `adjust` clamps to the range the fan itself publishes,
+and `key` accepts any command from that device's schema, so `windtype` and `shakehorizon` work
+the same way. Without `device`, `toggle` hits whichever fan you used last.
 
 ### If the key is assigned correctly and still does nothing
 
@@ -252,8 +280,10 @@ macro key itself.
 - Google and Apple sign-in accounts can't be used at all
 - Oscillation angle is missing on circulators that use a two-axis pad, because I couldn't work out
   the encoding and didn't want to guess and move somebody's fan the wrong way
-- The app is signed with a development certificate, not notarised. Fine on the Mac that built it,
-  Gatekeeper will complain anywhere else
+- A build you made yourself is signed with a development certificate, so Gatekeeper will complain
+  about it on any Mac other than the one that built it. The releases here are notarised and don't
+  have that problem
+- Moving between the App Store copy and the download makes you sign in to Dreo once more
 - Deleting a device really deletes it, from the account, everywhere. There's a confirmation, and
   Return picks Cancel on purpose
 

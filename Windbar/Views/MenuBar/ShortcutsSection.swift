@@ -39,6 +39,7 @@ struct ShortcutsSection: View {
                         onTrigger: { appModel.fire(preset, on: device) },
                         onCollision: reportCollision,
                         onEdit: { onEdit(preset) },
+                        onCopyLink: { copyTriggerLink(for: preset) },
                         onDelete: { confirmDelete(preset) }
                     )
                 }
@@ -68,6 +69,7 @@ struct ShortcutsSection: View {
             onTrigger: { appModel.togglePower(for: device) },
             onCollision: reportCollision,
             onEdit: nil,
+            onCopyLink: nil,
             onDelete: nil
         )
     }
@@ -78,6 +80,20 @@ struct ShortcutsSection: View {
     }
 
     /// Every other bound shortcut, for each row recorder's collision check.
+    /// The URL that fires this preset, for triggers that cannot send a
+    /// keystroke.
+    ///
+    /// A macro key, a Stream Deck button or a foot pedal hands its
+    /// combination to a virtual keyboard driver, which the recorder never
+    /// sees, so those tools reach a preset by URL instead. The id is a UUID
+    /// that appears nowhere in the UI, so without this the `windbar://preset`
+    /// handler is only reachable by reading it out of the settings plist.
+    private func copyTriggerLink(for preset: DevicePreset) {
+        let link = "windbar://preset?device=\(device.serialNumber)&preset=\(preset.id.uuidString)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+    }
+
     /// The preset editor blocks a colliding combo before Save is enabled; a
     /// row records live, so it has to undo what was typed instead.
     private var allShortcutNames: [KeyboardShortcuts.Name] {
@@ -169,9 +185,12 @@ private struct ShortcutRow: View {
     let help: String
     let onTrigger: () -> Void
     let onCollision: (ShortcutCollision) -> Void
-    /// Both nil for the built-in Power row: there is no shape to edit and
+    /// All nil for the built-in Power row: there is no shape to edit and
     /// nothing to delete, so it carries no menu rather than a disabled one.
+    /// Its own trigger link lives in the device menu, next to the other
+    /// device-wide actions.
     let onEdit: (() -> Void)?
+    let onCopyLink: (() -> Void)?
     let onDelete: (() -> Void)?
 
     @Environment(\.colorScheme) private var scheme
@@ -224,9 +243,10 @@ private struct ShortcutRow: View {
                 }
                 .controlSize(.small)
 
-                if let onEdit, let onDelete {
+                if let onEdit, let onCopyLink, let onDelete {
                     Menu {
                         Button("Edit…", action: onEdit)
+                        Button("Copy Trigger Link", action: onCopyLink)
                         Divider()
                         Button("Delete", role: .destructive, action: onDelete)
                     } label: {

@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 import SwiftUI
 import XCTest
 @testable import Windbar
@@ -72,6 +73,24 @@ final class ScreenshotHarness: XCTestCase {
                 ]
             )
         ]
+    }
+
+    /// Binds a key to the fan the hero frame shows expanded.
+    ///
+    /// Without it the Shortcuts row renders its unbound state, a wide "Record
+    /// Shortcut" button, which is the single most prominent control in the
+    /// listing's first screenshot and reads as an unfinished placeholder. A
+    /// bound key shows the feature instead of the empty control.
+    ///
+    /// Writes into the same defaults the app reads, so it is the real control
+    /// rendering a real value, and is undone afterwards so a render never
+    /// leaves a shortcut bound on the machine that ran it.
+    private func withDemoShortcut(_ body: () throws -> Void) rethrows {
+        let name = KeyboardShortcuts.Name.togglePower(deviceSerialNumber: "WB-DEMO-0001")
+        let previous = KeyboardShortcuts.getShortcut(for: name)
+        KeyboardShortcuts.setShortcut(.init(.one, modifiers: [.command, .option]), for: name)
+        defer { KeyboardShortcuts.setShortcut(previous, for: name) }
+        try body()
     }
 
     private func readyModel() async -> AppModel {
@@ -161,7 +180,9 @@ final class ScreenshotHarness: XCTestCase {
         // Four frames, four genuinely different views. An earlier five-frame cut
         // repeated MenuBarView and SettingsView twice with only the caption changed,
         // which wastes the slots that carry most of the conversion weight.
-        try render(MenuBarView(appModel: model), to: out, named: "01.png")   // hero
+        try withDemoShortcut {
+            try render(MenuBarView(appModel: model), to: out, named: "01.png")   // hero
+        }
         try render(SettingsView(appModel: model), to: out, named: "02.png")  // hotkey
         try render(AddDeviceView(appModel: model), to: out, named: "03.png") // pairing
 

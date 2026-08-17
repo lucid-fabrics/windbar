@@ -12,6 +12,11 @@ build/
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png.tmp
+fastlane/test_output/
+
+# Scratch output from local browser-automation tooling. Never part of a build.
+.playwright-mcp/
+.hermes-chrome-screenshots/
 
 # App Review contact + demo Dreo account. Written by CI from secrets at
 # deliver time and never committed: this repo is public.
