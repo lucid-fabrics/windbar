@@ -40,6 +40,7 @@ It grew a bit from there.
 - Every fan has a **Shortcuts** list: a Power key, plus a key for each of its presets
 - Fans collapse to a single line each, so having five of them doesn't fill the screen
 - Ambient light, colour and display controls on the models that have them
+- Temperature in °C or °F, following your Mac's region unless you say otherwise
 - `windbar://` URLs, so Shortcuts or a Stream Deck or a script can trigger any of it
 - **Pairs a brand new fan onto your WiFi over Bluetooth, with no phone involved**
 - Offline fans are shown as offline instead of pretending to work
@@ -212,7 +213,7 @@ Windbar/
 ```
 
 Swift 6 with strict concurrency on. `@MainActor @Observable` for app state, actors for anything
-doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 150 tests,
+doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 157 tests,
 none of which touch the network or the real Keychain.
 
 Two app targets are generated from `project.yml`, sharing one `sources` line so they can't drift
