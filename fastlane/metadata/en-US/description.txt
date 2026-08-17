@@ -5,15 +5,17 @@ Windbar puts your smart fans in the macOS menu bar. Click the icon, your fans ar
 WHAT YOU CAN DO
 
 • Power, speed, oscillation and mode, right from the menu bar
-• One keystroke toggles your last-used fan, from any app, even full screen
-• A separate key per fan, so one hits the bedroom and another hits the office
+• Presets: get a fan how you like it, save it as "Desk" or "Night", and give it a key. One press sets the fan up and turns it on; press again and it turns off
+• Every fan has its own Power key too, so one hits the bedroom and another hits the office, from any app, even full screen
+• Ambient light, colour and display controls on the models that have them
 • The fiddly per-device settings too, like Child Lock and display brightness
+• Fans fold down to a single line each, so a house full of them still fits on screen
 • Set up a brand new fan over Bluetooth, with no phone involved
 • A fan that is offline is shown as offline, rather than pretending to work
 
 BUILT FOR A KEYBOARD
 
-Every control is reachable from a URL, so Shortcuts, Stream Deck, Keyboard Maestro, a foot pedal or any macro key can drive your fans. Copy a fan's trigger link straight from its menu.
+Every control is reachable from a URL, so Shortcuts, Stream Deck, Keyboard Maestro, a foot pedal or any macro key can drive your fans. Copy a fan's or a preset's trigger link straight from its menu.
 
 IT FITS YOUR FAN, NOT A GENERIC ONE
 
