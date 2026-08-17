@@ -349,9 +349,24 @@ platform :mac do
     # command line reaches every target, which is why the profile is blanked here
     # rather than left at the "Windbar MAS" value project.yml sets for Release.
     #
-    # WINDBAR_DONATIONS is what makes this build differ from the App Store one. It
-    # compiles in the donation prompt, which must never exist in the App Store
-    # binary: guideline 3.1.1 forbids pointing users at outside payment.
+    # Two things make this build differ from the App Store one.
+    #
+    # WINDBAR_DONATIONS compiles in the donation prompt, which must never
+    # exist in the App Store binary: guideline 3.1.1 forbids pointing users at
+    # outside payment. WINDBAR_DIRECT compiles in everything else that only
+    # makes sense outside the store, starting with the import that rescues a
+    # previous sandboxed install's settings.
+    #
+    # And this build is NOT sandboxed. The sandbox is an App Store
+    # requirement, not a Gatekeeper one, and a sandboxed app is not permitted
+    # to replace itself in /Applications, so an updater cannot work inside it.
+    # What actually protects users here is the Developer ID signature and
+    # notarization, both verified below. Dropping the sandbox also moves where
+    # macOS keeps the app's preferences, which is why `SandboxMigration` runs
+    # before anything reads them.
+    entitlements = File.expand_path('../config/Windbar-Direct.entitlements', __dir__)
+    UI.user_error!("No direct-download entitlements at #{entitlements}") unless File.exist?(entitlements)
+
     sh("set -o pipefail && xcodebuild archive " \
        "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
        "-scheme #{SCHEME} -configuration Release " \
@@ -359,10 +374,11 @@ platform :mac do
        "CODE_SIGN_STYLE=Manual " \
        "CODE_SIGN_IDENTITY='Developer ID Application' " \
        "PROVISIONING_PROFILE_SPECIFIER='' " \
+       "CODE_SIGN_ENTITLEMENTS=#{entitlements.shellescape} " \
        "DEVELOPMENT_TEAM=#{TEAM_ID} " \
        "MARKETING_VERSION=#{version} CURRENT_PROJECT_VERSION=#{build_number} " \
        "OTHER_CODE_SIGN_FLAGS='--timestamp' " \
-       "SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WINDBAR_DONATIONS' " \
+       "SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT' " \
        "| xcbeautify || true")
 
     app = "#{archive}/Products/Applications/Windbar.app"
@@ -370,6 +386,20 @@ platform :mac do
     sh("codesign --verify --deep --strict --verbose=2 #{app.shellescape}")
     signer = sh("codesign -dv --verbose=2 #{app.shellescape} 2>&1 | grep Authority | head -1", log: false)
     UI.user_error!("App is not Developer ID signed: #{signer}") unless signer.include?('Developer ID Application')
+
+    # Verify the sandbox actually came off, rather than trusting that the
+    # CODE_SIGN_ENTITLEMENTS override above was honoured. A sandboxed build
+    # would ship an updater that silently cannot install anything, and the
+    # only symptom users would ever see is that updates never apply. Read
+    # what is baked into the signature, which is the only thing that counts
+    # at runtime.
+    signed_entitlements = sh("codesign -d --entitlements - --xml #{app.shellescape} 2>/dev/null " \
+                             "| plutil -convert xml1 -o - -", log: false)
+    if signed_entitlements.include?('com.apple.security.app-sandbox')
+      UI.user_error!('The direct-download build is sandboxed. Its updater cannot replace the app ' \
+                     'from inside a sandbox, so CODE_SIGN_ENTITLEMENTS did not take effect.')
+    end
+    UI.success('Direct-download build is unsandboxed, as its updater requires')
 
     unless donation_code_present?(app)
       UI.user_error!('Donation code is missing from the DMG build. WINDBAR_DONATIONS is set, so ' \

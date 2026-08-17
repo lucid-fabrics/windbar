@@ -45,7 +45,7 @@ targets:
         # flag anyway. Changing either of those without understanding why
         # reopens a real path to a 3.1.1 rejection, not a binary one.
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
         # Scoped to this target on purpose. Setting PROVISIONING_PROFILE_SPECIFIER
         # globally on the xcodebuild command line also hits the SwiftPM targets,
         # and KeyboardShortcuts fails with "does not support provisioning profiles".
@@ -97,7 +97,7 @@ targets:
         # nothing and a plain `xcodebuild test` reports a green run that never
         # touched the donation gate.
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
 schemes:
   Windbar:
     build:
