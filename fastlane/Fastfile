@@ -6,24 +6,23 @@
 # the Apple account holder through the web portal, and the App Store path does not
 # need it.
 #
-# SIGNING MODEL (differs from beeside on purpose)
+# SIGNING MODEL (deliberately unlike the other apps sharing this builder)
 #
-# beeside uses fastlane match, which clones an encrypted certs repo every run and
-# rebuilds a keychain. That machinery exists because its runner is shared with
-# several apps and its certs rotate. Windbar does not need it: the CI Mac already
-# holds both identities in PERSISTENT keychains under ~/gitea-runner/, so a run only
-# has to UNLOCK them.
+# The sibling pipelines use fastlane match, which clones an encrypted certs repo
+# every run and rebuilds a keychain. That machinery exists because their runner is
+# shared and their certs rotate. Windbar does not need it: the CI Mac already
+# holds both identities in PERSISTENT keychains, so a run only has to UNLOCK them.
 #
-#   ci-signing.keychain-db          Apple Distribution         (shared, beeside owns it)
+#   ci-signing.keychain-db          Apple Distribution         (shared, another app owns it)
 #   windbar-signing.keychain-db     3rd Party Mac Developer Installer  (ours)
 #
 # Both are already on the user keychain search list. This avoids `security import`
 # and `security set-key-partition-list` at build time entirely, which matters because
 # on macOS 26 the security daemon asynchronously SIGKILLs any process that calls
-# set-key-partition-list. See beeside's Fastfile for the scar tissue.
+# set-key-partition-list.
 #
 # It also means we never run match's certificate prune, which revokes older
-# Distribution certs and would break beeside, lucidpal and medclear on this team.
+# Distribution certs and would break every other app sharing this Apple team.
 
 default_platform(:mac)
 
@@ -330,7 +329,7 @@ platform :mac do
     )
 
     # Put it on the search list so codesign and productbuild can see it, without
-    # dropping whatever is already there (beeside's keychain lives here too).
+    # dropping whatever is already there (another app's keychain lives here too).
     current = sh('security list-keychains -d user', log: false)
               .split("\n").map { |s| s.strip.delete('"') }.reject(&:empty?)
     unless current.any? { |k| k.include?('windbar-signing') }

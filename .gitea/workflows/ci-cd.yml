@@ -197,6 +197,14 @@ jobs:
             exit 1
           fi
 
+          # There is deliberately NO guard here for the names of the other apps
+          # on this Apple team, even though they leaked into the signing comments
+          # once and one of them is a private repo. Any such check has to spell
+          # the names in its own pattern, and this file is published, so the
+          # guard would publish exactly what it exists to hide. The comments now
+          # explain the signing model by contrast without naming anyone, which is
+          # the actual fix.
+
           # Bare private IPs. The Gitea host's LAN address reached the public
           # mirror once through fastlane/.env.example, which is exactly the kind
           # of thing nobody notices in review.
