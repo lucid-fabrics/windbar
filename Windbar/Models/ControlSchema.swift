@@ -41,11 +41,20 @@ struct ControlSection: Codable, Equatable, Identifiable, Sendable {
     let trueValue: DreoValue?
     let falseValue: DreoValue?
 
+    /// A switch that has to be on for this section to do anything, e.g. the
+    /// light ring's own power for its colour and brightness.
+    ///
+    /// Without it a control looks broken rather than inert: the fan accepts a
+    /// colour while the ring is off, answers that it applied it, and nothing
+    /// lights up. Using the control turns its prerequisite on first, the same
+    /// way running a preset turns the fan on.
+    let requires: String?
+
     var id: String { rawId ?? cmd ?? type }
 
     enum CodingKeys: String, CodingKey {
         case rawId = "id"
-        case type, title, cmd, items, reverse, trueValue, falseValue
+        case type, title, cmd, items, reverse, trueValue, falseValue, requires
     }
 }
 

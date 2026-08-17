@@ -12,53 +12,81 @@ struct DeviceControlView: View {
 
     @Environment(\.colorScheme) private var scheme
     @State private var showsPreferences = false
+    /// Non-nil while the preset editor has taken over the card. Held here
+    /// rather than in the presets section so the editor can replace the
+    /// whole card instead of nesting a panel inside it.
+    @State private var presetEditing: PresetEditor.Mode?
 
     private var sections: [ControlSection] { device.controlsConf?.control ?? [] }
+    private var presets: [DevicePreset] {
+        appModel.settings.presetsBySerialNumber[device.serialNumber] ?? []
+    }
     private var preferences: [ControlSection] {
         (device.controlsConf?.preference ?? []).filter { $0.cmd != nil }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.roomy) {
-            header
-
-            if !device.isOnline {
-                Text("This device is offline. Check it has power and is in range of your WiFi.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let mode = presetEditing {
+                editor(for: mode)
             } else {
-                VStack(alignment: .leading, spacing: Theme.Space.roomy) {
-                    if sections.isEmpty {
-                        Text("No controls published for this model. Power still works.")
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    ForEach(sections) { section in
-                        sectionView(for: section)
-                    }
-                    preferencesSection
-                }
-                // Nothing sent to an unreachable device can take effect, so
-                // its controls stop accepting input rather than silently
-                // dropping commands. The header stays live so an offline
-                // device can still be managed and removed.
-                .disabled(!device.isOnline)
+                cardContent
             }
         }
         .padding(Theme.Metric.cardPadding)
         .background(
             RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous)
-                .fill(Theme.surface(scheme))
+                .fill(cardFill)
         )
         .opacity(cardOpacity)
         .animation(.easeOut(duration: 0.18), value: device.isOn)
         .animation(.easeOut(duration: 0.18), value: device.isOnline)
+        .animation(.snappy(duration: 0.2), value: presetEditing == nil)
         // Kept out of the card body so a destructive action can't be hit by
         // mistake while reaching for a speed or mode control.
         .contextMenu {
             Button("Remove \(device.deviceName)…", role: .destructive, action: confirmRemoval)
+        }
+    }
+
+    @ViewBuilder
+    private var cardContent: some View {
+        header
+
+        if !device.isOnline {
+            Text("This device is offline. Check it has power and is in range of your WiFi.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(alignment: .leading, spacing: Theme.Space.roomy) {
+                if sections.isEmpty {
+                    Text("No controls published for this model. Power still works.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(sections) { section in
+                    sectionView(for: section)
+                }
+                // Only once there is something to show. An empty list would
+                // be a heading over nothing, so the invitation to make the
+                // first one lives in More options instead.
+                if !presets.isEmpty {
+                    PresetsSection(
+                        appModel: appModel,
+                        device: device,
+                        presets: presets,
+                        onEdit: { presetEditing = .edit($0) }
+                    )
+                }
+                preferencesSection
+            }
+            // Nothing sent to an unreachable device can take effect, so
+            // its controls stop accepting input rather than silently
+            // dropping commands. The header stays live so an offline
+            // device can still be managed and removed.
+            .disabled(!device.isOnline)
         }
     }
 
@@ -101,8 +129,18 @@ struct DeviceControlView: View {
     // MARK: - Header
 
     private var cardOpacity: Double {
+        // The editor is the focused thing on screen while it is open, so it
+        // never inherits the dimming that says "this fan is off".
+        if presetEditing != nil { return 1 }
         if !device.isOnline { return 0.55 }
         return device.isOn ? 1 : 0.72
+    }
+
+    /// Editing washes the whole card towards the accent. Filled, never a
+    /// border: the surface is what carries the state, same rule as the rest
+    /// of the app.
+    private var cardFill: Color {
+        presetEditing == nil ? Theme.surface(scheme) : Theme.accentWash(scheme)
     }
 
     private var iconTint: Color {
@@ -111,127 +149,12 @@ struct DeviceControlView: View {
     }
 
     private var header: some View {
-        HStack(spacing: Theme.Space.snug) {
-            ZStack {
-                Circle()
-                    .fill(iconTint.opacity(0.18))
-                    .frame(width: 30, height: 30)
-                Image(systemName: device.isOnline ? (device.isOn ? "fan.fill" : "fan") : "fan.slash")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(iconTint)
-                    .symbolEffect(.variableColor.iterative, isActive: device.isOn && device.isOnline)
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(device.deviceName)
-                    .font(Theme.Font.deviceName)
-                    .lineLimit(1)
-                HStack(spacing: 5) {
-                    if device.isOnline {
-                        Text(device.model)
-                        if let temperature = device.state["temperature"]?.intValue {
-                            Text("·")
-                            Text("\(temperature)°")
-                                .monospacedDigit()
-                        }
-                    } else {
-                        Text("Offline")
-                            .foregroundStyle(.secondary)
-                        Text("·")
-                        Text(device.model)
-                    }
-                }
-                .font(Theme.Font.deviceMeta)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-            }
-
-            Spacer(minLength: Theme.Space.tight)
-
-            DeviceOptionsMenu(
-                deviceName: device.deviceName,
-                onCopyTriggerLink: copyTriggerLink,
-                onRemove: confirmRemoval
-            )
-
-            Toggle("Power", isOn: Binding(
-                get: { device.isOn },
-                set: { _ in appModel.togglePower(for: device) }
-            ))
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
-        }
-    }
-
-    // MARK: - Sections
-
-    @ViewBuilder
-    private func sectionView(for section: ControlSection) -> some View {
-        switch section.type {
-        case "Speed":
-            speedControl(for: section)
-        case "Oscillation":
-            oscillationControl(for: section)
-        default:
-            chipSection(for: section)
-        }
-    }
-
-    @ViewBuilder
-    private func speedControl(for section: ControlSection) -> some View {
-        if let items = section.items, items.count >= 2,
-           let low = items.map(\.value).compactMap(\.intValue).min(),
-           let high = items.map(\.value).compactMap(\.intValue).max(),
-           low < high, let cmd = items.first?.cmd {
-            let current = min(max(device.state[cmd]?.intValue ?? low, low), high)
-            VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                SectionLabel(title: sectionTitle(section), trailing: "\(current)")
-                StepSlider(range: low...high, value: current) { step in
-                    appModel.setValue(.int(step), forKey: cmd, on: device)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func oscillationControl(for section: ControlSection) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
-            HStack(spacing: Theme.Space.tight) {
-                SectionLabel(title: sectionTitle(section))
-                if let cmd = section.cmd {
-                    Toggle("", isOn: Binding(
-                        get: { device.state[cmd]?.boolValue ?? false },
-                        set: { appModel.setValue(.bool($0), forKey: cmd, on: device) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                }
-            }
-            if let items = section.items, !items.isEmpty {
-                chipRow(items: items)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func chipSection(for section: ControlSection) -> some View {
-        if let items = section.items, !items.isEmpty {
-            VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                SectionLabel(title: sectionTitle(section))
-                chipRow(items: items)
-            }
-        }
-    }
-
-    private func chipRow(items: [ControlItem]) -> some View {
-        let selected = items.first { device.state[$0.cmd] == $0.value }?.id
-        return SegmentedChips(
-            items: items,
-            selection: selected,
-            label: { $0.text.dreoTitleCased },
-            action: { appModel.setValue($0.value, forKey: $0.cmd, on: device) }
+        DeviceHeaderView(
+            device: device,
+            onCopyTriggerLink: copyTriggerLink,
+            onCopyDeviceReport: copyDeviceReport,
+            onRemove: confirmRemoval,
+            onTogglePower: { appModel.togglePower(for: device) }
         )
     }
 
@@ -272,8 +195,11 @@ struct DeviceControlView: View {
                     // Sits with the fan it controls rather than in a settings
                     // window, so binding a key never means hunting for which
                     // row belongs to which device.
+                    // "Toggle Power" rather than a bare "Shortcut": presets
+                    // set a fixed state, this one flips whatever the fan is
+                    // doing, and the label is what tells them apart.
                     HStack(spacing: Theme.Space.tight) {
-                        Text("Shortcut")
+                        Text("Toggle Power")
                             .font(Theme.Font.body)
                         Spacer(minLength: Theme.Space.tight)
                         KeyboardShortcuts.Recorder(
@@ -287,6 +213,26 @@ struct DeviceControlView: View {
                     // without this the recorder opens but never registers the
                     // key. Activating leaves the popover open.
                     .onAppear { NSApp.activate(ignoringOtherApps: true) }
+
+                    // A device whose schema has no sections has nothing a
+                    // preset could capture. Offering the row anyway just
+                    // hands the user an editor whose Save button can never
+                    // turn on: the "No controls published" message above
+                    // already says everything there is to say about it.
+                    if !sections.isEmpty {
+                        if presets.isEmpty {
+                            Text("A preset saves how the fan blows behind one name and "
+                                 + "shortcut. Running it turns the fan on, running it "
+                                 + "again turns the fan off.")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        HoverRow(icon: "plus.circle", title: "New Preset…") {
+                            presetEditing = .create
+                        }
+                    }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -297,13 +243,13 @@ struct DeviceControlView: View {
     /// Some preferences read inverted (`muteon` is true when panel sound is
     /// off) and some use ints instead of booleans, so both are normalised
     /// to what the label actually claims.
-    private func isPreferenceOn(_ section: ControlSection) -> Bool {
+    func isPreferenceOn(_ section: ControlSection) -> Bool {
         guard let cmd = section.cmd, let raw = device.state[cmd] else { return false }
         let enabled = section.trueValue.map { raw == $0 } ?? (raw.boolValue ?? false)
         return (section.reverse ?? false) ? !enabled : enabled
     }
 
-    private func setPreference(_ section: ControlSection, to newValue: Bool) {
+    func setPreference(_ section: ControlSection, to newValue: Bool) {
         guard let cmd = section.cmd else { return }
         let target = (section.reverse ?? false) ? !newValue : newValue
         let value: DreoValue
@@ -315,53 +261,63 @@ struct DeviceControlView: View {
         appModel.setValue(value, forKey: cmd, on: device)
     }
 
-    private func sectionTitle(_ section: ControlSection) -> String {
+    func sectionTitle(_ section: ControlSection) -> String {
         (section.title ?? section.type).dreoTitleCased
     }
 }
 
-extension String {
-    /// Schemas from the server carry raw localisation keys such as
-    /// `device_control_mode_sleep`, while the bundled templates already hold
-    /// English. Keys are looked up in the vendor's own string table first, so
-    /// labels read the way the Dreo app words them, and anything unknown falls
-    /// back to tidying the key itself.
-    var dreoTitleCased: String {
-        if let label = DeviceLabels.text(forKey: self) { return label }
-        guard contains("_") else { return self }
-        var words = split(separator: "_").map(String.init)
-            .filter { !["device", "control", "fans", "base"].contains($0.lowercased()) }
-        if words.count > 1, words.first?.lowercased() == "mode" {
-            words.removeFirst()
-        }
-        if words.isEmpty { words = [self] }
-        return words.map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+// MARK: - Reporting
+
+private extension DeviceControlView {
+    /// For reporting a fan with buttons this app has no controls for. The
+    /// serial is left out on purpose: reports get pasted in public, and the
+    /// model plus the unshown keys is everything needed to add the control.
+    func copyDeviceReport() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            DeviceDiagnostics.report(for: device, appVersion: version),
+            forType: .string
+        )
     }
 }
 
-/// Per-device actions behind a visible button. A right-click only menu is
-/// undiscoverable: nothing on screen advertises that it exists.
-struct DeviceOptionsMenu: View {
-    let deviceName: String
-    let onCopyTriggerLink: () -> Void
-    let onRemove: () -> Void
+// MARK: - Preset editing
 
-    var body: some View {
-        Menu {
-            Button("Copy Trigger Link", action: onCopyTriggerLink)
-            Divider()
-            Button("Remove Device…", role: .destructive, action: onRemove)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
+private extension DeviceControlView {
+    func editor(for mode: PresetEditor.Mode) -> some View {
+        PresetEditor(
+            device: device,
+            mode: mode,
+            takenNames: takenNames(for: mode),
+            allShortcutNames: ShortcutRegistry.names(
+                devices: appModel.devices,
+                presetsBySerialNumber: appModel.settings.presetsBySerialNumber
+            ),
+            onSave: { saved in
+                appModel.savePreset(saved, on: device)
+                presetEditing = nil
+            },
+            onCancel: { presetEditing = nil }
+        )
+        // Explicit identity, so switching from creating to editing (or to a
+        // different preset) starts the editor fresh instead of inheriting the
+        // previous target's id, name and values from SwiftUI's state store.
+        .id(editorIdentity(for: mode))
+        .transition(.opacity)
+    }
+
+    func editorIdentity(for mode: PresetEditor.Mode) -> String {
+        switch mode {
+        case .create: return "new"
+        case .edit(let preset): return preset.id.uuidString
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Device options")
-        .accessibilityLabel("Options for \(deviceName)")
+    }
+
+    func takenNames(for mode: PresetEditor.Mode) -> [String] {
+        switch mode {
+        case .create: return presets.map(\.name)
+        case .edit(let preset): return presets.filter { $0.id != preset.id }.map(\.name)
+        }
     }
 }

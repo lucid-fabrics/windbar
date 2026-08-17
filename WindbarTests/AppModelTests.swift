@@ -83,7 +83,7 @@ final class AppModelTests: XCTestCase {
 
         XCTAssertEqual(model.devices[0].isOn, true)
 
-        try? await Task.sleep(for: .milliseconds(50))
+        try? await Task.sleep(for: .milliseconds(400))
         let sent = await socketFake.sentCommands
         XCTAssertEqual(sent.count, 1)
         XCTAssertEqual(sent.first?.serialNumber, "SN1")

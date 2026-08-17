@@ -46,6 +46,17 @@ final class DeviceShortcutBinderTests: XCTestCase {
         XCTAssertEqual(first, KeyboardShortcutsNameProbe.rawName(for: "SN1"))
         XCTAssertTrue(first.contains("SN1"))
     }
+
+    func test_bindPresets_registersEachPresetOnce() {
+        let binder = DeviceShortcutBinder()
+        let first = DevicePreset(name: "North", values: [:])
+        let second = DevicePreset(name: "Breathe", values: [:])
+
+        binder.bindPresets([first, second]) { _ in }
+        binder.bindPresets([first, second]) { _ in }
+
+        XCTAssertEqual(binder.boundCount, 2)
+    }
 }
 
 private enum KeyboardShortcutsNameProbe {

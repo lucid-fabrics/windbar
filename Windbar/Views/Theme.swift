@@ -48,6 +48,39 @@ enum Theme {
     /// Meadow green, reserved for a healthy outcome.
     static let success = dynamic(light: 0x5F822B, dark: 0x8CBF40)
 
+    /// Something went wrong. Deliberately the one colour in the app that owes
+    /// nothing to the sky palette: an error has to be told apart from "this
+    /// is on" at a glance, and the surest way is to sit opposite the accent
+    /// rather than beside it. Light clears 5.6:1 on the popover, dark 5.9:1,
+    /// so an 11pt caption stays readable in both.
+    static let danger = dynamic(light: 0xC0342B, dark: 0xFF6B63)
+
+    /// Filled background behind an error message. Filled, never a border.
+    static func dangerSurface(_ scheme: ColorScheme) -> Color {
+        danger.opacity(scheme == .dark ? 0.16 : 0.11)
+    }
+
+    // MARK: - Accent steps
+    //
+    // Accent earns its weight by being rare, and the app now has five places
+    // that want "accent-ish": a selected chip, a filled slider, the active
+    // preset, a card in edit mode, and decorative art. Left to improvise,
+    // that became a dozen different opacities, which reads as noise rather
+    // than hierarchy. Three named steps instead, loudest to quietest.
+
+    /// A whole surface that has changed mode, e.g. the card while its preset
+    /// editor is open. Quiet enough to sit under body text.
+    static func accentWash(_ scheme: ColorScheme) -> Color {
+        accent.opacity(scheme == .dark ? 0.12 : 0.08)
+    }
+
+    /// One row or control that is currently active, e.g. the preset the fan
+    /// is running. Loud enough to find at a glance, quiet enough to leave
+    /// the label at full contrast instead of forcing it onto a solid fill.
+    static func accentTint(_ scheme: ColorScheme) -> Color {
+        accent.opacity(scheme == .dark ? 0.18 : 0.14)
+    }
+
     /// Card and control fills. Never a coloured border on a rounded
     /// container: the surface itself carries the hierarchy. Tinted towards
     /// the sky rather than pure white or black, so panels sit in the same

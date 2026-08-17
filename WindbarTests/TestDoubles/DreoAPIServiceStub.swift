@@ -53,6 +53,10 @@ actor DreoAPIServiceStub: DreoAPIServiceProtocol {
         devicesResult = result
     }
 
+    func setStateResult(_ result: Result<[String: DreoValue], Error>) {
+        stateResult = result
+    }
+
     func setSession(_ session: DreoSession?) {
         sessionToReturn = session
     }

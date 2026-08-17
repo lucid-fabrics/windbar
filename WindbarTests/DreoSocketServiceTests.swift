@@ -13,6 +13,14 @@ final class DreoSocketServiceTests: XCTestCase {
         XCTAssertNotNil(json["timestamp"] as? String)
     }
 
+    /// A refused command must not be retried: the fan already judged the
+    /// value, so sending it again earns the same answer.
+    func test_rejection_isNotRetryable() {
+        XCTAssertFalse(DreoSocketError.rejected(code: 500003, message: "instruction validate failed").isRetryable)
+        XCTAssertTrue(DreoSocketError.ackTimeout.isRetryable)
+        XCTAssertTrue(DreoSocketError.notConnected.isRetryable)
+    }
+
     func test_webSocketURL_usesRegionHostAndIncludesToken() throws {
         let session = DreoSession(accessToken: "tok-abc", regionHost: "eu")
         let url = try XCTUnwrap(DreoSocketService.webSocketURL(for: session))

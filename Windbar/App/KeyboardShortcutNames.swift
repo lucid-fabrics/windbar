@@ -1,3 +1,4 @@
+import Foundation
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
@@ -13,5 +14,11 @@ extension KeyboardShortcuts.Name {
     /// removed simply stops matching anything.
     static func togglePower(deviceSerialNumber: String) -> Self {
         Self("togglePower.\(deviceSerialNumber)")
+    }
+
+    /// Fires one preset. The UUID alone is enough because the binding is
+    /// made after settings load, so the device is already known.
+    static func preset(id: UUID) -> Self {
+        Self("preset.\(id.uuidString)")
     }
 }

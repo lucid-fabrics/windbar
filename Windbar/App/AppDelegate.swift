@@ -59,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// - `toggle` flips power, on `device` or on the last-used fan.
     /// - `set` writes one control, e.g. `key=windlevel&value=9`.
     /// - `adjust` nudges a numeric control, e.g. `key=windlevel&delta=-1`.
+    /// - `preset` runs a saved preset, e.g. `device=<serial>&preset=<uuid>`,
+    ///   and turns the fan off if that preset is the one already running.
     private func handle(_ url: URL, with model: AppModel) {
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func value(_ name: String) -> String? {
@@ -84,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "adjust":
                 guard let device, let key, let delta = value("delta").flatMap(Int.init) else { return }
                 model.adjustValue(forKey: key, by: delta, onSerialNumber: device)
+
+            case "preset":
+                guard let device,
+                      let raw = value("preset"),
+                      let id = UUID(uuidString: raw) else { return }
+                model.firePreset(id: id, onSerialNumber: device)
 
             default:
                 break
