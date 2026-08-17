@@ -150,10 +150,17 @@ targets:
         SUFeedURL: $(SU_FEED_URL)
         SUPublicEDKey: $(SU_PUBLIC_ED_KEY)
         SUEnableAutomaticChecks: true
-    # No sandbox: a sandboxed app cannot replace itself in /Applications, so
-    # the updater could not install anything. See config/Windbar-Direct.entitlements.
+    # Same capabilities as the store target minus the sandbox: a sandboxed
+    # app cannot replace itself in /Applications, so the updater could not
+    # install anything. The properties have to be spelled out here, not just
+    # the path, because xcodegen generates this file from them and writes an
+    # empty one if they are missing, which silently strips Bluetooth and
+    # network from the build.
     entitlements:
       path: config/Windbar-Direct.entitlements
+      properties:
+        com.apple.security.network.client: true
+        com.apple.security.device.bluetooth: true
 
   WindbarTests:
     type: bundle.unit-test
