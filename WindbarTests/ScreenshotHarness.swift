@@ -106,6 +106,11 @@ final class ScreenshotHarness: XCTestCase {
             settingsRepository: SettingsRepositoryFake()
         )
         await model.start()
+        // Pinned, because the default follows the Mac's region: the same
+        // render would produce 74°F here and 23°C on a machine set to another
+        // country, so the store frames would quietly change depending on who
+        // built them. Fahrenheit matches the en-US listing these go to.
+        model.settings.temperatureUnit = .fahrenheit
         return model
     }
 

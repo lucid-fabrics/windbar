@@ -18,6 +18,23 @@ struct SettingsView: View {
                 Label("Startup", systemImage: "power")
             }
 
+            Section {
+                Picker("Temperature", selection: Binding(
+                    get: { appModel.settings.temperatureUnit },
+                    set: { appModel.settings.temperatureUnit = $0 }
+                )) {
+                    ForEach(TemperatureUnit.allCases, id: \.self) { unit in
+                        Text(unit.label).tag(unit)
+                    }
+                }
+            } header: {
+                Label("Display", systemImage: "thermometer.medium")
+            } footer: {
+                Text("Fans report temperature in Fahrenheit. Automatic follows your Mac's region.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             #if DEBUG && WINDBAR_DONATIONS
             donationPreview
             #endif
@@ -35,10 +52,14 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // Tall enough for every section, including the last one. The height is
+        // fixed, so adding a section without raising it pushes the bottom of
+        // the form off the window: at 200pt the Temperature picker hid Sign
+        // Out entirely, with no scrollbar to suggest anything was missing.
         #if DEBUG && WINDBAR_DONATIONS
-        .frame(width: 400, height: 360)
+        .frame(width: 400, height: 560)
         #else
-        .frame(width: 400, height: 200)
+        .frame(width: 400, height: 385)
         #endif
         // Confirm first: this discards a password the user may not remember, and there
         // is no undo.

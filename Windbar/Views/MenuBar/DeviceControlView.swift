@@ -176,6 +176,7 @@ struct DeviceControlView: View {
             device: device,
             isCollapsible: isCollapsible,
             isExpanded: isExpanded,
+            temperatureUnit: appModel.settings.temperatureUnit,
             onToggleExpanded: onToggleExpanded,
             onCopyTriggerLink: copyTriggerLink,
             onCopyDeviceReport: copyDeviceReport,
