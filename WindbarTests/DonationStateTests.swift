@@ -229,6 +229,77 @@ final class DonationStateTests: XCTestCase {
         XCTAssertNil(reloaded.pitch, "a manual open must not have saved anything")
     }
 
+    // MARK: - After donating
+
+    /// The one that matters most here: a donor must never be asked again. Before
+    /// this, tapping an amount only closed the card, so four months later they
+    /// were asked whether the app was still earning its spot.
+    @MainActor
+    func test_donating_endsTheAutomaticAsksForGood() throws {
+        let defaults = try scratchDefaults(#function, seed: earned(now: Date()))
+        let coordinator = DonationCoordinator(defaults: defaults)
+
+        coordinator.popoverDidOpen()
+        XCTAssertTrue(coordinator.isShowing)
+        coordinator.recordDonation()
+        XCTAssertFalse(coordinator.isShowing)
+
+        // Not now, and not on any later launch, cooldown elapsed or not.
+        let relaunched = DonationCoordinator(defaults: defaults)
+        relaunched.popoverDidOpen()
+        XCTAssertFalse(relaunched.isShowing, "a donor must not be asked again")
+        XCTAssertTrue(relaunched.hasDonated)
+    }
+
+    func test_donating_outranksEveryOtherGate() {
+        var state = earned(now: Date())
+        XCTAssertTrue(state.shouldPrompt(), "this user is otherwise fully earned")
+
+        state.recordDonation()
+
+        XCTAssertFalse(state.shouldPrompt())
+        XCTAssertTrue(state.hasDonated)
+    }
+
+    /// The door stays open, but it greets them rather than pitching them.
+    @MainActor
+    func test_donorOpeningItManually_isThankedNotAskedAgain() throws {
+        let defaults = try scratchDefaults(#function, seed: earned(now: Date()))
+        let coordinator = DonationCoordinator(defaults: defaults)
+        coordinator.recordDonation()
+
+        coordinator.showManually()
+
+        XCTAssertTrue(coordinator.isShowing)
+        XCTAssertEqual(coordinator.pitch?.headline, DonationPitch.alreadyGave.headline)
+        XCTAssertEqual(coordinator.pitch?.allowsOptOut, false, "nothing left to opt out of")
+    }
+
+    @MainActor
+    func test_someoneWhoNeverGave_stillGetsTheOrdinaryManualCard() throws {
+        let defaults = try scratchDefaults(#function, seed: nil)
+        let coordinator = DonationCoordinator(defaults: defaults)
+
+        coordinator.showManually()
+
+        XCTAssertEqual(coordinator.pitch?.headline, DonationPitch.manual.headline)
+        XCTAssertFalse(coordinator.hasDonated)
+    }
+
+    /// Giving again has to stay possible, so a second donation is counted
+    /// rather than ignored.
+    @MainActor
+    func test_donatingAgainIsCounted() throws {
+        let defaults = try scratchDefaults(#function, seed: nil)
+        let coordinator = DonationCoordinator(defaults: defaults)
+
+        coordinator.recordDonation()
+        coordinator.recordDonation()
+
+        let relaunched = DonationCoordinator(defaults: defaults)
+        XCTAssertTrue(relaunched.hasDonated)
+    }
+
     func test_stateRoundTripsThroughCodable() throws {
         let now = Date()
         let state = earned(now: now)

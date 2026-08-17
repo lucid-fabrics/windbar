@@ -28,6 +28,24 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
+        # A local build is the direct-download build, so the donation UI can be
+        # seen and worked on without a release. This cannot reach the App Store
+        # BINARY: both shipping lanes build Release (`release` and
+        # `release_dmg` in fastlane/Fastfile), only `release_dmg` adds this
+        # flag, and `release` greps the finished archive to prove no donation
+        # code is present before it uploads.
+        #
+        # It CAN reach the App Store listing if left unguarded elsewhere: the
+        # store screenshots in design/screenshots/ are rendered by running
+        # WindbarTests/ScreenshotHarness.swift through `xcodebuild test`,
+        # whose test config also inherits this Debug flag. That path is
+        # covered separately: design/render_screenshots.sh pins
+        # SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on its own xcodebuild
+        # invocation, and the harness itself fails its run if it detects the
+        # flag anyway. Changing either of those without understanding why
+        # reopens a real path to a 3.1.1 rejection, not a binary one.
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
         # Scoped to this target on purpose. Setting PROVISIONING_PROFILE_SPECIFIER
         # globally on the xcodebuild command line also hits the SwiftPM targets,
         # and KeyboardShortcuts fails with "does not support provisioning profiles".
@@ -73,6 +91,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar.tests
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        # Matches the app target, so the donation tests actually run locally
+        # and in CI. Without it the whole DonationStateTests file compiles to
+        # nothing and a plain `xcodebuild test` reports a green run that never
+        # touched the donation gate.
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
 schemes:
   Windbar:
     build:

@@ -11,9 +11,17 @@ mkdir -p "$RAW"
 
 echo "==> rendering UI with fixture devices"
 LOG=$(mktemp)
+# The compilation conditions are pinned rather than inherited. These renders
+# become the App Store listing, and the Debug configuration sets
+# WINDBAR_DONATIONS so the donation UI can be worked on locally. Inheriting it
+# would put a "Support Windbar" row and a donations debug panel into the
+# screenshots uploaded to Apple, and guideline 3.1.1 covers metadata as
+# squarely as it covers the binary. Nothing downstream would catch it: the
+# fastlane guard only ever greps the binary.
 TEST_RUNNER_WINDBAR_SHOT_DIR=1 xcodebuild test \
   -project Windbar.xcodeproj -scheme Windbar -destination 'platform=macOS' \
   -only-testing:WindbarTests/ScreenshotHarness \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" \
   PROVISIONING_PROFILE_SPECIFIER="" > "$LOG" 2>&1 || { tail -30 "$LOG"; exit 1; }
 

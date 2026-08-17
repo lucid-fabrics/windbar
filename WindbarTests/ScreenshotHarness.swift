@@ -126,7 +126,32 @@ final class ScreenshotHarness: XCTestCase {
     }
 
     func test_renderScreenshots() async throws {
+        // outputDirectory() throws XCTSkip when WINDBAR_SHOT_DIR is unset, which is
+        // every ordinary test run, local or CI: this harness is meant to be silent
+        // then. The canary below only means anything once a render is actually about
+        // to happen, so it has to come after that skip, not before it, or a routine
+        // `xcodebuild test` would fail on a check that was never rendering anything
+        // in the first place.
         let out = try outputDirectory()
+
+        // A canary, not a formality. WindbarTests' own Debug config sets
+        // WINDBAR_DONATIONS (so DonationStateTests runs by default), and these
+        // renders become the App Store listing, so the donation UI being
+        // compiled in here would bake a "Support Windbar" footer row and a
+        // debug panel into screenshots uploaded to Apple, the same guideline
+        // 3.1.1 risk as the binary itself carrying it. render_screenshots.sh
+        // pins SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on the xcodebuild
+        // invocation for exactly this reason. If this fires, that override
+        // was removed, or the harness was run without it.
+        #if WINDBAR_DONATIONS
+        XCTFail(
+            "WINDBAR_DONATIONS is compiled into this run. Screenshots rendered now would " +
+            "carry the donation UI into the App Store listing. Run with " +
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on the xcodebuild command, the way " +
+            "design/render_screenshots.sh does."
+        )
+        return
+        #endif
         let model = await readyModel()
 
         XCTAssertEqual(model.devices.count, 2, "fixtures did not load; the rest would render empty")

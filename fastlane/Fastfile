@@ -94,10 +94,36 @@ end
 # payment link, which is a guideline 3.1.1 rejection. Worse, the code compiles to
 # nothing the moment no view references it, so "the flag is set" proves nothing.
 # Grep the built binary instead of trusting the build setting.
+#
+# The needle is one payment link's own path segment, not the shared
+# "buy.stripe.com" host string. Swift stores a string literal of 15 UTF-8
+# bytes or fewer inline inside the String struct rather than as bytes in
+# __TEXT,__cstring, so a 14-byte needle like "buy.stripe.com" would silently
+# stop matching a binary that plainly ships the code the day someone factors
+# that host out into a `let` (a base-URL constant, a `URLComponents` build-up
+# - an entirely ordinary refactor). This is 23 bytes, well past that window,
+# and unique to this app: it cannot vanish that way without the real payment
+# link breaking too.
+DONATION_LINK_NEEDLE = 'dRmfZg2K7aTOcD0dMMgYU00'
+
 def donation_code_present?(app)
   binary = File.join(app, 'Contents/MacOS/Windbar')
   UI.user_error!("No binary at #{binary}") unless File.exist?(binary)
-  File.binread(binary).include?('buy.stripe.com')
+
+  # Xcode 16 splits a Debug BUILD's code into a companion .debug.dylib next to
+  # a thin launcher stub, so grepping the stub alone reports "absent" for a
+  # bundle that plainly contains the code. An xcodebuild ARCHIVE (what both
+  # callers below pass here) merges the dylib back into one executable and
+  # never has this file, so its presence means this helper was pointed at
+  # something other than an archive and cannot judge it either way.
+  dylib = File.join(app, 'Contents/MacOS/Windbar.debug.dylib')
+  if File.exist?(dylib)
+    UI.user_error!("#{dylib} exists, so this is a split Debug build rather than an " \
+                   'archive. donation_code_present? only reads the main executable and ' \
+                   'would silently report the wrong answer for a bundle shaped like this.')
+  end
+
+  File.binread(binary).include?(DONATION_LINK_NEEDLE)
 end
 
 platform :mac do
@@ -250,9 +276,19 @@ platform :mac do
     # The mirror image of the check in release_dmg. An App Store binary containing
     # a Stripe link is a guideline 3.1.1 rejection, and the only thing keeping it
     # out is one compiler flag being absent. Verify rather than assume.
+    #
+    # Fails closed: an unresolved archive path or a missing .app used to just
+    # skip the check silently and let the upload proceed unverified, which
+    # defeats the entire point of having it. A renamed PRODUCT_NAME, a
+    # relocated archive_path, or gym changing where it puts the archive would
+    # each have disabled the one thing standing between this lane and a
+    # rejection, with no line in the log saying so.
     archive = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
-    app     = archive && "#{archive}/Products/Applications/Windbar.app"
-    if app && File.exist?(app) && donation_code_present?(app)
+    UI.user_error!('No archive path in lane_context: cannot verify the App Store build is ' \
+                   'free of donation code before uploading.') unless archive
+    app = "#{archive}/Products/Applications/Windbar.app"
+    UI.user_error!("No app at #{app}") unless File.exist?(app)
+    if donation_code_present?(app)
       UI.user_error!('Donation code is present in the App Store build. WINDBAR_DONATIONS must ' \
                      'never be set for the `release` lane: guideline 3.1.1 forbids it.')
     end

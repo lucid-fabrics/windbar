@@ -94,6 +94,17 @@ struct DonationPitch {
         headline: "Support Windbar",
         body: "No pressure, just here if you ever want to chip in.",
         allowsOptOut: false)
+
+    /// For someone who has already given. They are never asked again, so this
+    /// only ever appears because they went looking for it, which makes a
+    /// second pitch the wrong thing to show them: thank them, say plainly that
+    /// the asking is over, and leave the buttons working for anyone who wants
+    /// to give again.
+    static let alreadyGave = DonationPitch(
+        headline: "You already chipped in",
+        body: "Thanks, that was generous. Windbar won't ask you again. "
+            + "The buttons still work if you ever feel like topping it up.",
+        allowsOptOut: false)
 }
 
 /// Counters behind the prompt. Deliberately dumb and local: no identifiers, no
@@ -107,6 +118,16 @@ struct DonationState: Codable, Equatable, Sendable {
     var lastPrompt: Date?
     var promptCount: Int = 0
     var optedOut: Bool = false
+    /// How many times the user opened checkout from the card.
+    ///
+    /// Not "how many times they paid": the amount button hands off to a Stripe
+    /// link in a browser and nothing comes back, so the app cannot know. Intent
+    /// is treated as enough. Erring generous means someone who abandons
+    /// checkout stops being asked, which is a far better failure than asking a
+    /// donor whether the app is still earning its spot.
+    var donationCount: Int = 0
+
+    var hasDonated: Bool { donationCount > 0 }
 
     static let `default` = DonationState()
 
@@ -130,11 +151,19 @@ struct DonationState: Codable, Equatable, Sendable {
         promptCount += 1
     }
 
+    mutating func recordDonation() {
+        donationCount += 1
+    }
+
     /// Whether the user has *earned* the ask. Deliberately says nothing about
     /// whether links exist to show them: that is a deployment concern, checked
     /// separately by `canPrompt`, so this stays pure and testable.
     func shouldPrompt(now: Date = Date()) -> Bool {
         guard !optedOut else { return false }
+        // Giving ends the asking permanently. The whole point of the gate is
+        // that the ask has to be earned, and there is nothing left to earn
+        // from someone who already paid.
+        guard !hasDonated else { return false }
         guard promptCount < Donations.maximumLifetimePrompts else { return false }
         guard let first = firstLaunch else { return false }
 
@@ -165,6 +194,9 @@ struct DonationState: Codable, Equatable, Sendable {
 final class DonationCoordinator {
     private(set) var isShowing = false
     private(set) var pitch: DonationPitch?
+    /// Mirrored out of `state` so the footer can acknowledge a supporter
+    /// without the whole counter blob having to be observable.
+    private(set) var hasDonated = false
 
     @ObservationIgnored private var state: DonationState
     @ObservationIgnored private let defaults: UserDefaults
@@ -180,6 +212,7 @@ final class DonationCoordinator {
             state.firstLaunch = Date()
             save()
         }
+        hasDonated = state.hasDonated
     }
 
     func recordToggle() {
@@ -204,12 +237,28 @@ final class DonationCoordinator {
     /// Dismissed for now. The cooldown decides when, or whether, it returns.
     func dismiss() { isShowing = false }
 
+    /// The user tapped an amount and checkout opened.
+    ///
+    /// This is the end of the automatic asks. Closing the card is not enough
+    /// on its own: without recording it, a donor came back four months later
+    /// to a card asking whether the app was still earning its spot.
+    func recordDonation() {
+        state.recordDonation()
+        hasDonated = true
+        save()
+        isShowing = false
+    }
+
     /// User-initiated, from the footer. Deliberately bypasses `canPrompt()`
-    /// entirely and touches nothing in `state`: it must work even for someone
-    /// who opted out or already used up all three automatic asks, and opening
-    /// it must not itself count as, or block, one of those asks.
+    /// entirely and touches nothing in the ask counters: it must work even for
+    /// someone who opted out or already used up all three automatic asks, and
+    /// opening it must not itself count as, or block, one of those asks.
+    ///
+    /// Someone who has already given gets thanked rather than pitched. They
+    /// are never sent here by the app, so their being here at all means they
+    /// came looking, and a second pitch would be the wrong greeting.
     func showManually() {
-        pitch = .manual
+        pitch = state.hasDonated ? .alreadyGave : .manual
         isShowing = true
     }
 
@@ -223,5 +272,59 @@ final class DonationCoordinator {
     private func save() {
         defaults.set(try? JSONEncoder().encode(state), forKey: Self.storageKey)
     }
+
+    #if DEBUG
+    // MARK: - Preview, debug builds only
+    //
+    // The gate is deliberately hard to satisfy: 14 days installed, 50 toggles,
+    // 7 separate days of use. That is right for users and useless for anyone
+    // working on the card, who would otherwise have to fake counters by hand
+    // or wait a fortnight to see their own copy. These skip the gate without
+    // touching it, so a preview never consumes one of the three real asks.
+    //
+    // Double-gated: `#if DEBUG` keeps it out of both shipping builds, and the
+    // enclosing `#if WINDBAR_DONATIONS` keeps it out of the App Store one
+    // twice over.
+
+    /// Shows the ask the user would earn next, without spending it.
+    func debugShowAsk() {
+        pitch = DonationPitch.forAsk(state)
+        isShowing = true
+    }
+
+    /// Shows a specific one of the three, so all the copy can be checked.
+    func debugShowAsk(index: Int) {
+        var preview = state
+        preview.promptCount = index
+        pitch = DonationPitch.forAsk(preview)
+        isShowing = true
+    }
+
+    /// Back to a fresh install, so the whole flow can be walked again.
+    func debugReset() {
+        state = DonationState()
+        state.firstLaunch = Date()
+        hasDonated = false
+        isShowing = false
+        pitch = nil
+        save()
+    }
+
+    /// Pretends the user has given, for checking the supporter card and the
+    /// filled heart in the footer.
+    func debugMarkDonated() {
+        state.recordDonation()
+        hasDonated = true
+        isShowing = false
+        save()
+    }
+
+    var debugSummary: String {
+        "toggles \(state.toggleCount) · days \(state.activeDays.count) · "
+            + "asks \(state.promptCount)/\(Donations.maximumLifetimePrompts) · "
+            + (state.hasDonated ? "donated" : "not donated")
+            + (state.optedOut ? " · opted out" : "")
+    }
+    #endif
 }
 #endif

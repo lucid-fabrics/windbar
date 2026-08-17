@@ -98,7 +98,14 @@ struct MenuBarView: View {
             // misclicked "No thanks" or a change of heart six months after
             // opting out should not be a locked door. This never triggers
             // itself, so it is not a second nag, just a door that stays open.
-            HoverRow(icon: "heart", title: "Support Windbar…") {
+            //
+            // For someone who has given, the filled heart is the whole
+            // acknowledgement. Quiet enough to miss, there every time if you
+            // look, and it never says anything about them to anyone else.
+            HoverRow(
+                icon: appModel.donations.hasDonated ? "heart.fill" : "heart",
+                title: "Support Windbar…"
+            ) {
                 withAnimation { appModel.donations.showManually() }
             }
             #endif

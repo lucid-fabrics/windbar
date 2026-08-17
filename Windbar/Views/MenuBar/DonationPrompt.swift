@@ -77,7 +77,9 @@ struct DonationPrompt: View {
             ForEach(Donations.links, id: \.label) { link in
                 Button {
                     if let url = URL(string: link.url) { openURL(url) }
-                    withAnimation { coordinator.dismiss() }
+                    // Records rather than just closes, so this is the last
+                    // time the app brings it up on its own.
+                    withAnimation { coordinator.recordDonation() }
                 } label: {
                     Text(link.label)
                         .font(.system(size: 12, weight: .semibold))
