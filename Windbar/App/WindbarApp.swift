@@ -6,6 +6,16 @@ struct WindbarApp: App {
     @State private var appModel: AppModel
 
     init() {
+        #if WINDBAR_DIRECT
+        // Before anything reads UserDefaults. The direct-download build is
+        // unsandboxed so its updater can replace the app, which also moves
+        // where macOS keeps its preferences, so the previous sandboxed
+        // install's settings have to be carried across first. Reading
+        // defaults ahead of this would see an empty store and treat a
+        // long-time user as a fresh install.
+        SandboxMigration.run()
+        #endif
+
         let model = AppModel()
         _appModel = State(initialValue: model)
         appDelegate.configure(appModel: model)

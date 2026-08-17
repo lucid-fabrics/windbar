@@ -1,5 +1,5 @@
 First release.
 
 Your Dreo fans in the macOS menu bar: power, speed, oscillation, mode and the per-device
-settings. Assign a global keyboard shortcut, or one key per fan. Set up a brand new fan over
-Bluetooth without touching your phone.
+settings. Save presets and bind a key to each one. Set up a brand new fan over Bluetooth
+without touching your phone.

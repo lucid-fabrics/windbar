@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0.2"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: KRPUAN3FFA
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
@@ -15,6 +15,15 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.2.0
+  # Attached to WindbarDirect only. A package dependency cannot be made
+  # conditional per configuration, so a single shared target would embed
+  # Sparkle.framework in the App Store archive and link it from the main
+  # binary (verified: it did). Apple rejects apps carrying a self-updater, so
+  # the split is what makes the store build provably free of it rather than
+  # merely not calling it.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.9.0
 targets:
   Windbar:
     type: application
@@ -28,6 +37,24 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
+        # A local build is the direct-download build, so the donation UI can be
+        # seen and worked on without a release. This cannot reach the App Store
+        # BINARY: both shipping lanes build Release (`release` and
+        # `release_dmg` in fastlane/Fastfile), only `release_dmg` adds this
+        # flag, and `release` greps the finished archive to prove no donation
+        # code is present before it uploads.
+        #
+        # It CAN reach the App Store listing if left unguarded elsewhere: the
+        # store screenshots in design/screenshots/ are rendered by running
+        # WindbarTests/ScreenshotHarness.swift through `xcodebuild test`,
+        # whose test config also inherits this Debug flag. That path is
+        # covered separately: design/render_screenshots.sh pins
+        # SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on its own xcodebuild
+        # invocation, and the harness itself fails its run if it detects the
+        # flag anyway. Changing either of those without understanding why
+        # reopens a real path to a 3.1.1 rejection, not a binary one.
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
         # Scoped to this target on purpose. Setting PROVISIONING_PROFILE_SPECIFIER
         # globally on the xcodebuild command line also hits the SwiftPM targets,
         # and KeyboardShortcuts fails with "does not support provisioning profiles".
@@ -62,6 +89,94 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.device.bluetooth: true
+  # The GitHub download. Same product name, same bundle id, same source
+  # files as the target above: `sources` is one shared line, so the two
+  # cannot drift on file membership, and the only differences are the ones
+  # listed here deliberately.
+  #
+  # It exists because Sparkle cannot be excluded from a configuration, only
+  # from a target. A self-updater in the App Store binary is a rejection, so
+  # this is what makes the store build provably free of it. The two are never
+  # in the same archive, so sharing the bundle id is safe and is what keeps a
+  # user's settings and shortcuts in place if they move between them.
+  WindbarDirect:
+    type: application
+    platform: macOS
+    sources:
+      - path: Windbar
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_NAME: Windbar
+        PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Every configuration, unlike the store target's Debug-only flags:
+        # this target only ever ships outside the App Store, so there is no
+        # configuration of it that should lack the updater.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS WINDBAR_DIRECT
+        # Overridable on the xcodebuild command line, which is how the local
+        # end-to-end test points a build at a throwaway feed without editing
+        # any file.
+        SU_FEED_URL: https://github.com/lucid-fabrics/windbar/releases/latest/download/appcast.xml
+        # The public half of the update signing key. Public by design: it is
+        # what an installed copy checks a downloaded update against, so an
+        # update signed by anyone else is refused. Its private half lives in
+        # the Gitea secret SPARKLE_ED_PRIVATE_KEY and in a password manager,
+        # and nowhere else. Losing it means every installed copy refuses every
+        # future update permanently, because they all verify against this
+        # value; changing it has the same effect, so it must not be rotated
+        # casually.
+        SU_PUBLIC_ED_KEY: bSDWiZhfu6mwnC1QXUldUlQ/axyFimzY7nNtjQbHDns=
+      configs:
+        # Both targets build a product called Windbar.app into the same
+        # DerivedData directory, so locally they overwrite each other and an
+        # incremental build happily serves whichever one happens to be there
+        # already. That is invisible and deeply confusing: you test the App
+        # Store build believing it is this one. Debug gets a distinct name so
+        # the two can coexist while working on them; Release keeps Windbar,
+        # since that is the name that ships, and the release lanes archive to
+        # separate paths anyway.
+        Debug:
+          PRODUCT_NAME: Windbar-Direct
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Developer ID Application
+          PROVISIONING_PROFILE_SPECIFIER: ""
+    info:
+      path: config/Info-Direct.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        ITSAppUsesNonExemptEncryption: false
+        NSSupportsAutomaticTermination: true
+        NSSupportsSuddenTermination: false
+        NSBluetoothAlwaysUsageDescription: "Windbar uses Bluetooth to pair new Dreo fans onto your WiFi network."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.lucidfabrics.windbar
+            CFBundleURLSchemes:
+              - windbar
+        # Sparkle reads these three. The feed is where it looks for new
+        # versions; the key is what it verifies them against, so a forged
+        # update signed by anyone else is rejected.
+        SUFeedURL: $(SU_FEED_URL)
+        SUPublicEDKey: $(SU_PUBLIC_ED_KEY)
+        SUEnableAutomaticChecks: true
+    # Same capabilities as the store target minus the sandbox: a sandboxed
+    # app cannot replace itself in /Applications, so the updater could not
+    # install anything. The properties have to be spelled out here, not just
+    # the path, because xcodegen generates this file from them and writes an
+    # empty one if they are missing, which silently strips Bluetooth and
+    # network from the build.
+    entitlements:
+      path: config/Windbar-Direct.entitlements
+      properties:
+        com.apple.security.network.client: true
+        com.apple.security.device.bluetooth: true
+
   WindbarTests:
     type: bundle.unit-test
     platform: macOS
@@ -73,6 +188,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lucidfabrics.windbar.tests
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        # Matches the app target, so the donation tests actually run locally
+        # and in CI. Without it the whole DonationStateTests file compiles to
+        # nothing and a plain `xcodebuild test` reports a green run that never
+        # touched the donation gate.
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WINDBAR_DONATIONS
 schemes:
   Windbar:
     build:
@@ -82,5 +204,13 @@ schemes:
     test:
       targets:
         - WindbarTests
+    run:
+      config: Debug
+  # Built by `fastlane mac release_dmg`, and by CI on every PR so a compile
+  # break in this target surfaces then rather than in the middle of a release.
+  Windbar-Direct:
+    build:
+      targets:
+        WindbarDirect: all
     run:
       config: Debug

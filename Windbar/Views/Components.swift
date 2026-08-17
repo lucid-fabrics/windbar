@@ -95,6 +95,89 @@ struct StepSlider: View {
     }
 }
 
+/// Colour swatches for a packed-RGB control such as a fan's light ring.
+///
+/// Deliberately not `ColorPicker`. That opens the system colour panel, which
+/// is a separate window, and a menu bar popover closes the moment it loses
+/// focus, so the picker would take the fan's card down with it. A fixed
+/// palette keeps everything inside the popover and matches how the rest of
+/// the card is driven.
+struct ColorSwatches: View {
+    let items: [ControlItem]
+    /// The value currently on the device, matched against each swatch.
+    let selection: Int?
+    let action: (ControlItem) -> Void
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        // Spacing lives in the padding below, not here: padding grows each
+        // swatch's tappable footprint without growing the drawn circle, so
+        // the visual rhythm is unchanged while the hit target clears the
+        // platform's minimum comfortably instead of sitting under it.
+        HStack(spacing: 0) {
+            ForEach(items) { item in
+                let value = item.value.intValue ?? 0
+                let isSelected = value == selection
+                let label = item.text.dreoTitleCased
+                Button {
+                    action(item)
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Self.color(fromPackedRGB: value))
+                        // Neutral edge, never an accent ring, and stronger
+                        // than the shared card hairline: that token is tuned
+                        // for a card boundary against the popover material,
+                        // not for keeping a white fill from reading as a hole
+                        // in the row against a light popover.
+                        Circle()
+                            .strokeBorder(Self.edge(scheme), lineWidth: 1)
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Self.contrastingInk(forPackedRGB: value))
+                        }
+                    }
+                    .frame(width: 21, height: 21)
+                    .scaleEffect(isSelected ? 1.12 : 1)
+                }
+                .buttonStyle(.plain)
+                .padding(3)
+                .contentShape(Rectangle())
+                .help(label)
+                .accessibilityLabel(label)
+                .accessibilityValue(isSelected ? "Selected" : "")
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .animation(.snappy(duration: 0.18), value: selection)
+    }
+
+    private static func edge(_ scheme: ColorScheme) -> Color {
+        Color.primary.opacity(scheme == .dark ? 0.15 : 0.18)
+    }
+
+    static func color(fromPackedRGB value: Int) -> Color {
+        Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
+    /// Black on a light swatch, white on a dark one, so the tick stays
+    /// readable on every colour in the palette.
+    static func contrastingInk(forPackedRGB value: Int) -> Color {
+        let red = Double((value >> 16) & 0xFF) / 255
+        let green = Double((value >> 8) & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance > 0.55 ? .black : .white
+    }
+}
+
 /// Labelled switch used for device preferences such as Child Lock.
 struct ToggleRow: View {
     let title: String
@@ -160,6 +243,8 @@ struct HoverRow: View {
 struct InlineErrorBanner: View {
     let message: String
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.tight) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -168,13 +253,13 @@ struct InlineErrorBanner: View {
                 .font(Theme.Font.caption)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(.red)
+        .foregroundStyle(Theme.danger)
         .padding(.horizontal, Theme.Space.snug)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.Metric.controlRadius, style: .continuous)
-                .fill(Color.red.opacity(0.12))
+                .fill(Theme.dangerSurface(scheme))
         )
     }
 }

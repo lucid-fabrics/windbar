@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 import SwiftUI
 import XCTest
 @testable import Windbar
@@ -74,6 +75,24 @@ final class ScreenshotHarness: XCTestCase {
         ]
     }
 
+    /// Binds a key to the fan the hero frame shows expanded.
+    ///
+    /// Without it the Shortcuts row renders its unbound state, a wide "Record
+    /// Shortcut" button, which is the single most prominent control in the
+    /// listing's first screenshot and reads as an unfinished placeholder. A
+    /// bound key shows the feature instead of the empty control.
+    ///
+    /// Writes into the same defaults the app reads, so it is the real control
+    /// rendering a real value, and is undone afterwards so a render never
+    /// leaves a shortcut bound on the machine that ran it.
+    private func withDemoShortcut(_ body: () throws -> Void) rethrows {
+        let name = KeyboardShortcuts.Name.togglePower(deviceSerialNumber: "WB-DEMO-0001")
+        let previous = KeyboardShortcuts.getShortcut(for: name)
+        KeyboardShortcuts.setShortcut(.init(.one, modifiers: [.command, .option]), for: name)
+        defer { KeyboardShortcuts.setShortcut(previous, for: name) }
+        try body()
+    }
+
     private func readyModel() async -> AppModel {
         let api = DreoAPIServiceStub()
         await api.setDevicesResult(.success(fixtureDevices()))
@@ -126,7 +145,32 @@ final class ScreenshotHarness: XCTestCase {
     }
 
     func test_renderScreenshots() async throws {
+        // outputDirectory() throws XCTSkip when WINDBAR_SHOT_DIR is unset, which is
+        // every ordinary test run, local or CI: this harness is meant to be silent
+        // then. The canary below only means anything once a render is actually about
+        // to happen, so it has to come after that skip, not before it, or a routine
+        // `xcodebuild test` would fail on a check that was never rendering anything
+        // in the first place.
         let out = try outputDirectory()
+
+        // A canary, not a formality. WindbarTests' own Debug config sets
+        // WINDBAR_DONATIONS (so DonationStateTests runs by default), and these
+        // renders become the App Store listing, so the donation UI being
+        // compiled in here would bake a "Support Windbar" footer row and a
+        // debug panel into screenshots uploaded to Apple, the same guideline
+        // 3.1.1 risk as the binary itself carrying it. render_screenshots.sh
+        // pins SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on the xcodebuild
+        // invocation for exactly this reason. If this fires, that override
+        // was removed, or the harness was run without it.
+        #if WINDBAR_DONATIONS
+        XCTFail(
+            "WINDBAR_DONATIONS is compiled into this run. Screenshots rendered now would " +
+            "carry the donation UI into the App Store listing. Run with " +
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG on the xcodebuild command, the way " +
+            "design/render_screenshots.sh does."
+        )
+        return
+        #endif
         let model = await readyModel()
 
         XCTAssertEqual(model.devices.count, 2, "fixtures did not load; the rest would render empty")
@@ -136,7 +180,9 @@ final class ScreenshotHarness: XCTestCase {
         // Four frames, four genuinely different views. An earlier five-frame cut
         // repeated MenuBarView and SettingsView twice with only the caption changed,
         // which wastes the slots that carry most of the conversion weight.
-        try render(MenuBarView(appModel: model), to: out, named: "01.png")   // hero
+        try withDemoShortcut {
+            try render(MenuBarView(appModel: model), to: out, named: "01.png")   // hero
+        }
         try render(SettingsView(appModel: model), to: out, named: "02.png")  // hotkey
         try render(AddDeviceView(appModel: model), to: out, named: "03.png") // pairing
 

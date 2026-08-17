@@ -220,6 +220,10 @@ jobs:
           GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           GH_REPO: lucid-fabrics/windbar
           CI_PIPELINE_NUMBER: ${{ github.run_number }}
+          # Signs the appcast. Every installed copy verifies an update against
+          # the public half baked into it, so without this the release would
+          # publish an update that nobody can install.
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -eo pipefail
           export RBENV_ROOT="$HOME/.rbenv"
@@ -248,10 +252,37 @@ jobs:
           AUTH="Authorization: Bearer ${GH_RELEASE_TOKEN}"
           TAG="v$VERSION"
 
+          # What people read on the download page. Anything specific to this
+          # version lives in docs/release-notes/<version>.md; the install lines
+          # underneath never change, so they stay here rather than being
+          # retyped every release.
+          #
+          # The filename carries the version deliberately. A single notes file
+          # that someone forgot to update would quietly ship the previous
+          # release's text, and "you will have to sign in again" is exactly the
+          # kind of sentence that must not appear on a release where it is not
+          # true. A version that has no file just gets the install lines.
+          #
+          # Built with python rather than shell interpolation because the notes
+          # are arbitrary prose: a quote or a newline in them would produce
+          # invalid JSON and a confusing API error at the worst possible moment.
+          BODY=$(VERSION="$VERSION" python3 <<'PY'
+          import json, os, sys
+          path = f"docs/release-notes/{os.environ['VERSION']}.md"
+          notes = open(path).read().strip() if os.path.exists(path) else ''
+          print(f"release notes: {path if notes else 'none, using the generic body'}",
+                file=sys.stderr)
+          install = ('Signed and notarized by Apple. Download the DMG, drag Windbar to '
+                     'Applications, open it.\n\nFree, and the same app that is on the Mac App '
+                     'Store. This copy updates itself: Check for Updates in the menu.')
+          print(json.dumps('\n\n'.join(p for p in (notes, install) if p)))
+          PY
+          )
+
           ID=$(curl -sf -H "$AUTH" "$API/releases/tags/$TAG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' 2>/dev/null || true)
           if [ -z "$ID" ]; then
             ID=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" "$API/releases" \
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"Windbar $VERSION\",\"body\":\"Signed and notarized by Apple. Download the DMG, drag Windbar to Applications, open it.\\n\\nFree. The App Store build is the same app if you would rather get updates automatically.\",\"draft\":false,\"prerelease\":false}" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"Windbar $VERSION\",\"body\":$BODY,\"draft\":false,\"prerelease\":false}" \
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
             echo "created release $TAG"
           else
@@ -264,5 +295,21 @@ jobs:
             --data-binary @"$DMG" \
             "https://uploads.github.com/repos/${GH_REPO}/releases/$ID/assets?name=Windbar-$VERSION.dmg" \
             > /dev/null
-          echo "=== published $DMG to github.com/${GH_REPO}/releases/tag/$TAG ==="
+
+          # The update feed, next to the DMG it describes. Installed copies
+          # fetch it from releases/latest/download/appcast.xml, which always
+          # resolves to the newest release, so the URL baked into every build
+          # never changes. Without this asset the DMG still installs by hand
+          # but no existing copy ever learns the release happened.
+          APPCAST="build/dmg/appcast/appcast.xml"
+          [ -f "$APPCAST" ] || { echo "no appcast at $APPCAST"; exit 1; }
+          OLD_AC=$(curl -sf -H "$AUTH" "$API/releases/$ID/assets" \
+            | python3 -c "import json,sys; print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='appcast.xml'), ''))" || true)
+          [ -n "$OLD_AC" ] && curl -sf -X DELETE -H "$AUTH" "$API/releases/assets/$OLD_AC" > /dev/null
+          curl -sf -X POST -H "$AUTH" -H "Content-Type: application/xml" \
+            --data-binary @"$APPCAST" \
+            "https://uploads.github.com/repos/${GH_REPO}/releases/$ID/assets?name=appcast.xml" \
+            > /dev/null
+
+          echo "=== published $DMG + appcast to github.com/${GH_REPO}/releases/tag/$TAG ==="
           echo "=== published $(git rev-parse --short HEAD) to github.com/${GH_REPO} ==="

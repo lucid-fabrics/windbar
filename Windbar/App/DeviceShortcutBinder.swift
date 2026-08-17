@@ -1,3 +1,4 @@
+import Foundation
 import KeyboardShortcuts
 
 /// Keeps a keyboard shortcut handler registered for every device on the
@@ -11,6 +12,7 @@ import KeyboardShortcuts
 @MainActor
 final class DeviceShortcutBinder {
     private var boundSerialNumbers: Set<String> = []
+    private var boundPresetIDs: Set<UUID> = []
 
     /// Binds anything not already bound. Safe to call on every refresh.
     ///
@@ -30,5 +32,20 @@ final class DeviceShortcutBinder {
         }
     }
 
-    var boundCount: Int { boundSerialNumbers.count }
+    /// Binds a key handler for each preset that has not yet been wired.
+    /// Called whenever the user adds or saves a preset.
+    func bindPresets(_ presets: [DevicePreset], apply: @escaping @MainActor (UUID) -> Void) {
+        for preset in presets where !boundPresetIDs.contains(preset.id) {
+            let id = preset.id
+            boundPresetIDs.insert(id)
+
+            KeyboardShortcuts.onKeyUp(for: .preset(id: id)) {
+                Task { @MainActor in
+                    apply(id)
+                }
+            }
+        }
+    }
+
+    var boundCount: Int { boundSerialNumbers.count + boundPresetIDs.count }
 }

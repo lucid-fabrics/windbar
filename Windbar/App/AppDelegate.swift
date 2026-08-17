@@ -1,20 +1,15 @@
 import AppKit
 import KeyboardShortcuts
 
-/// Owns the two ways to toggle fan power that don't go through the menu bar
-/// dropdown: the global keyboard shortcut and the `windbar://toggle` URL
-/// scheme (for iCUE's "Launch Application" action, once iCUE is working).
+/// Owns the `windbar://` URL scheme, which is how anything outside the menu
+/// bar dropdown drives a fan: a Stream Deck button, a Corsair G-key, an
+/// Elgato pedal. Keyboard shortcuts are bound per fan by
+/// `DeviceShortcutBinder` instead, from the card that shows them.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appModel: AppModel?
 
     func configure(appModel: AppModel) {
         self.appModel = appModel
-        let model = appModel
-        KeyboardShortcuts.onKeyUp(for: .toggleFanPower) {
-            Task { @MainActor in
-                model.toggleLastSelectedDevicePower()
-            }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -59,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// - `toggle` flips power, on `device` or on the last-used fan.
     /// - `set` writes one control, e.g. `key=windlevel&value=9`.
     /// - `adjust` nudges a numeric control, e.g. `key=windlevel&delta=-1`.
+    /// - `preset` runs a saved preset, e.g. `device=<serial>&preset=<uuid>`,
+    ///   and turns the fan off if that preset is the one already running.
     private func handle(_ url: URL, with model: AppModel) {
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func value(_ name: String) -> String? {
@@ -84,6 +81,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "adjust":
                 guard let device, let key, let delta = value("delta").flatMap(Int.init) else { return }
                 model.adjustValue(forKey: key, by: delta, onSerialNumber: device)
+
+            case "preset":
+                guard let device,
+                      let raw = value("preset"),
+                      let id = UUID(uuidString: raw) else { return }
+                model.firePreset(id: id, onSerialNumber: device)
 
             default:
                 break

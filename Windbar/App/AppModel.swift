@@ -11,8 +11,12 @@ final class AppModel {
         case ready
     }
 
-    private(set) var launchState: LaunchState = .loading
-    private(set) var devices: [DreoDevice] = []
+    // internal(set) rather than private(set): the lifecycle internals
+    // (login, device loading, the update stream) live in
+    // AppModelLifecycle.swift, a separate file, so `private` would not
+    // reach them. Same reasoning as apiService/socketService below.
+    internal(set) var launchState: LaunchState = .loading
+    internal(set) var devices: [DreoDevice] = []
     private(set) var isRefreshingDevices = false
 
     /// Set only when the user picks "Add a Device". macOS opens an app's
@@ -28,22 +32,39 @@ final class AppModel {
         }
     }
 
-    @ObservationIgnored private static let logger = Logger(subsystem: "com.lucidfabrics.windbar", category: "AppModel")
+    @ObservationIgnored static let logger = Logger(subsystem: "com.lucidfabrics.windbar", category: "AppModel")
 
-    @ObservationIgnored private let apiService: DreoAPIServiceProtocol
-    @ObservationIgnored private let socketService: DreoSocketServiceProtocol
-    @ObservationIgnored private let keychainRepository: KeychainRepositoryProtocol
-    @ObservationIgnored private let settingsRepository: SettingsRepositoryProtocol
+    @ObservationIgnored let apiService: DreoAPIServiceProtocol
+    @ObservationIgnored let socketService: DreoSocketServiceProtocol
+    @ObservationIgnored let keychainRepository: KeychainRepositoryProtocol
+    @ObservationIgnored let settingsRepository: SettingsRepositoryProtocol
 
     #if WINDBAR_DONATIONS
     /// Direct-download build only. See Models/Donations.swift.
     let donations = DonationCoordinator()
     #endif
 
-    @ObservationIgnored private let shortcutBinder = DeviceShortcutBinder()
+    #if WINDBAR_DIRECT
+    /// Direct-download build only. Held here so it is constructed once for
+    /// the app's lifetime: Sparkle's scheduled checks start with it, and a
+    /// controller rebuilt per view would restart that clock every time the
+    /// popover opened. See App/UpdateController.swift.
+    let updates = UpdateController()
+    #endif
+
+    @ObservationIgnored let shortcutBinder = DeviceShortcutBinder()
     @ObservationIgnored private var hasLoadedSettings = false
-    @ObservationIgnored private var settingsSaveTask: Task<Void, Never>?
-    @ObservationIgnored private var updatesTask: Task<Void, Never>?
+    @ObservationIgnored var settingsSaveTask: Task<Void, Never>?
+    @ObservationIgnored var updatesTask: Task<Void, Never>?
+    /// One pending send per `serial|cmd`, so a control being dragged replaces
+    /// its own in-flight value instead of racing it. See AppModelCommands.swift.
+    @ObservationIgnored var pendingSends: [String: Task<Void, Never>] = [:]
+    /// One delivery chain per device, so at most one command is ever in
+    /// flight per device. See `enqueueDelivery` in AppModelCommands.swift.
+    @ObservationIgnored var deliveryChains: [String: Task<Void, Never>] = [:]
+    /// The fan's confirmed state per device, as opposed to `device.state`'s
+    /// optimistic one. See the property comment in AppModelCommands.swift.
+    @ObservationIgnored var wireState: [String: [String: DreoValue]] = [:]
 
     init(
         apiService: DreoAPIServiceProtocol = DreoAPIService(),
@@ -57,7 +78,7 @@ final class AppModel {
         self.settingsRepository = settingsRepository
     }
 
-    /// Target for the global hotkey and the URL scheme. An explicit choice
+    /// Target for a `windbar://` URL that names no device. An explicit choice
     /// is honoured even while it's offline, but the automatic fallback skips
     /// unreachable devices so the hotkey acts on one that can respond.
     var lastSelectedOrFirstDevice: DreoDevice? {
@@ -92,20 +113,99 @@ final class AppModel {
         await login(credentials: DreoCredentials(email: email, password: password), persist: true)
     }
 
+    /// Sets one control, coalescing repeats of the same control.
+    ///
+    /// A slider reports every step it crosses, so one drag used to fire a
+    /// command per step. Only the value the user let go on matters, and the
+    /// ones before it were actively harmful: they raced each other to the
+    /// socket, and a command that lost its ack got retried with a value the
+    /// user had already dragged past, which the fan then refused. Local state
+    /// still moves on every step, so the UI tracks the drag; only the wire
+    /// waits for the drag to settle.
     func setValue(_ value: DreoValue, forKey key: String, on device: DreoDevice) {
-        guard let index = devices.firstIndex(where: { $0.serialNumber == device.serialNumber }) else { return }
-        devices[index].state[key] = value
-        settings.lastSelectedDeviceSerialNumber = device.serialNumber
+        // Switch on whatever this control depends on first. The rule lives
+        // here rather than in the card so a keyboard shortcut, a URL trigger
+        // and a click all behave the same. Decided from `wireState`, the
+        // fan's confirmed state, not `device.state`: that optimistic copy
+        // already reads true the instant the first tap fires, so a second
+        // tap within the debounce window would otherwise drop the switch-on
+        // from its own batch and send a colour to a ring still off.
+        //
+        // The prerequisite rides inside the coalesced batch rather than going
+        // out on its own. Sending it immediately would exempt every control
+        // that has one from coalescing, and the light's own speed slider has
+        // one, so dragging it with the ring off put the whole flood straight
+        // back: five redundant switch-ons racing five values.
+        var commands: [(key: String, value: DreoValue)] = []
+        if let required = requirement(forKey: key, on: device),
+           wireState[device.serialNumber]?[required]?.boolValue != true {
+            commands.append((required, .bool(true)))
+        }
+        commands.append((key, value))
+
+        applyLocally(commands, to: device)
+
+        let token = "\(device.serialNumber)|\(key)"
+        pendingSends[token]?.cancel()
+        let serialNumber = device.serialNumber
+        let deviceName = device.deviceName
+        pendingSends[token] = Task { [weak self] in
+            try? await Task.sleep(for: Constants.Socket.controlSettleDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingSends[token] = nil
+            self.enqueueDelivery(commands, serialNumber: serialNumber, deviceName: deviceName)
+        }
+    }
+
+    /// Sends a batch of commands to one device, in the order given.
+    ///
+    /// Order is the point. A fan that is off ignores a speed change, so a
+    /// preset has to land power before the rest. Going through the same
+    /// per-device delivery chain as a coalesced single send is what makes
+    /// that order hold against the wire and not just within this call: two
+    /// batches issued back to back, e.g. two preset hotkeys pressed in quick
+    /// succession, would otherwise race each other's commands.
+    func send(_ commands: [(key: String, value: DreoValue)], to device: DreoDevice) {
+        guard !commands.isEmpty else { return }
+        applyLocally(commands, to: device)
 
         let serialNumber = device.serialNumber
-        Task {
-            do {
-                try await socketService.sendCommand(serialNumber: serialNumber, key: key, value: value)
-            } catch {
-                Self.logger.warning("Command failed: \(String(describing: error), privacy: .public)")
-                errorMessage = "Couldn't reach \(device.deviceName). Check your connection and try again."
-            }
+        let deviceName = device.deviceName
+        // A batch is one deliberate action, e.g. running a preset, so it goes
+        // as sent rather than being coalesced. Any single-control send still
+        // pending for these keys would only undo it.
+        for (key, _) in commands {
+            pendingSends.removeValue(forKey: "\(serialNumber)|\(key)")?.cancel()
         }
+        enqueueDelivery(commands, serialNumber: serialNumber, deviceName: deviceName)
+    }
+
+    /// Optimistic local state, so the UI answers the click immediately and a
+    /// second keypress sees the state the first one asked for.
+    func applyLocally(_ commands: [(key: String, value: DreoValue)], to device: DreoDevice) {
+        guard let index = devices.firstIndex(where: { $0.serialNumber == device.serialNumber }) else { return }
+        for (key, value) in commands {
+            devices[index].state[key] = value
+        }
+        settings.lastSelectedDeviceSerialNumber = device.serialNumber
+    }
+
+    /// Promotes a device the account still lists as offline back to online.
+    ///
+    /// `connected` is read once from REST when devices load, and a fan paired
+    /// moments ago is routinely listed before Dreo's cloud has marked it
+    /// connected. Nothing refreshed that flag afterwards, so a perfectly
+    /// reachable fan stayed greyed out until the user hit Refresh Devices.
+    /// An acked command or a pushed report is direct proof the fan is
+    /// answering, and direct proof outranks a stale snapshot.
+    ///
+    /// Only ever promotes. Demotion stays with the REST refresh, since one
+    /// dropped command is not proof a fan is gone and flipping the card to
+    /// disabled on a transient failure would be worse than the stale flag.
+    func markReachable(_ serialNumber: String) {
+        guard let index = devices.firstIndex(where: { $0.serialNumber == serialNumber }),
+              devices[index].state["connected"]?.boolValue == false else { return }
+        devices[index].state["connected"] = .bool(true)
     }
 
     /// Current login session, including the numeric account id BLE pairing
@@ -120,9 +220,24 @@ final class AppModel {
         do {
             try await apiService.removeDevice(serialNumber: device.serialNumber)
             devices.removeAll { $0.serialNumber == device.serialNumber }
+            wireState[device.serialNumber] = nil
+            // A command already queued behind another for this device would
+            // otherwise still fire after removal and, on failure, could
+            // surface "Couldn't reach <device>" for a fan that is no longer
+            // part of the account.
+            cancelPendingCommands(forSerialNumber: device.serialNumber)
             if settings.lastSelectedDeviceSerialNumber == device.serialNumber {
                 settings.lastSelectedDeviceSerialNumber = nil
             }
+            // Drop the presets that lived on this device, and their key
+            // combos with them, the same way deleting one preset already
+            // does. Without this the combo sits in KeyboardShortcuts'
+            // storage forever, unreachable by any UI (the row is gone) and
+            // unreachable by collision detection (ShortcutRegistry.names now
+            // only looks at presets belonging to a currently loaded device),
+            // so a key nobody can free stays claimed indefinitely.
+            unbindPresets(forSerialNumber: device.serialNumber)
+            settings.presetsBySerialNumber[device.serialNumber] = nil
         } catch {
             Self.logger.warning("Remove failed: \(String(describing: error), privacy: .public)")
             errorMessage = "Couldn't remove \(device.deviceName). Check your connection and try again."
@@ -203,9 +318,24 @@ final class AppModel {
     /// Order matters. Stop the socket and the update stream first, or an in-flight
     /// update can repopulate `devices` after they are cleared and leave the popover
     /// showing fans belonging to an account that is no longer signed in.
+    ///
+    /// `settings.presetsBySerialNumber` is deliberately left untouched: signing
+    /// back into the same account should find the same presets, not an empty
+    /// list. Nothing needs to unbind their shortcuts either. `devices` is
+    /// cleared below, and every preset trigger (`firePreset`) already starts
+    /// by looking its device up in `devices`, so a key press for any of them
+    /// resolves to nothing the instant the account is gone, the same way a
+    /// removed device's own toggle shortcut already does. The one real risk,
+    /// a preset from a different, still-settings-resident account blocking a
+    /// new shortcut as a false collision, is closed in `ShortcutRegistry.names`,
+    /// which only considers presets belonging to a currently loaded device.
     func signOut() async {
         updatesTask?.cancel()
         updatesTask = nil
+        // Same reasoning as the per-device drain in removeDevice, for every
+        // device at once: nothing queued for an account just signed out of
+        // should be able to reach the socket or the error banner.
+        cancelAllPendingCommands()
         await socketService.disconnect()
         await apiService.signOut()
 
@@ -219,73 +349,11 @@ final class AppModel {
         }
 
         devices = []
+        wireState = [:]
         // Unbind every per-device hotkey. Leaving them registered means a keypress
         // fires at a device list that no longer exists.
         shortcutBinder.bind(devices: []) { _ in }
         settings.lastSelectedDeviceSerialNumber = nil
         launchState = .needsLogin
-    }
-
-    // MARK: - Login internals
-
-    private func login(credentials: DreoCredentials, persist: Bool) async {
-        errorMessage = nil
-        do {
-            try await apiService.login(credentials)
-            if persist {
-                try? await keychainRepository.save(credentials)
-            }
-            try await loadDevicesAndConnect()
-            launchState = .ready
-        } catch {
-            Self.logger.warning("Login failed: \(String(describing: error), privacy: .public)")
-            errorMessage = "Couldn't sign in. Check your email and password."
-            launchState = .needsLogin
-        }
-    }
-
-    private func loadDevicesAndConnect() async throws {
-        try await loadDevices()
-
-        if let session = await apiService.currentSession() {
-            await socketService.connect(session: session)
-            subscribeToUpdates()
-        }
-    }
-
-    private func loadDevices() async throws {
-        var loaded = try await apiService.listDevices()
-        for index in loaded.indices {
-            if let state = try? await apiService.fetchState(for: loaded[index].serialNumber) {
-                loaded[index].apply(state)
-            }
-        }
-        devices = loaded
-        // Bind a shortcut for anything newly seen. Devices only exist after
-        // the account loads, so this cannot be declared up front.
-        shortcutBinder.bind(devices: loaded) { [weak self] serialNumber in
-            self?.togglePower(serialNumber: serialNumber)
-        }
-    }
-
-    private func subscribeToUpdates() {
-        updatesTask?.cancel()
-        updatesTask = Task {
-            let stream = await socketService.observeUpdates()
-            for await update in stream {
-                apply(update)
-            }
-        }
-    }
-
-    private func apply(_ update: DreoStateUpdate) {
-        guard let index = devices.firstIndex(where: { $0.serialNumber == update.serialNumber }) else { return }
-        devices[index].apply(update.changes)
-    }
-
-    private func scheduleSettingsSave() {
-        settingsSaveTask?.cancel()
-        let current = settings
-        settingsSaveTask = Task { try? await settingsRepository.save(current) }
     }
 }
