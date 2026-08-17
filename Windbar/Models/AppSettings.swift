@@ -10,21 +10,28 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// list of named shortcuts; the dict is empty (and reads back as `[]`
     /// after a fresh install) until the user saves one.
     var presetsBySerialNumber: [String: [DevicePreset]]
+    /// Display unit for the temperature a fan reports. Defaults to following
+    /// the Mac's region, which is right for most people without them ever
+    /// opening Preferences.
+    var temperatureUnit: TemperatureUnit
 
     static let `default` = AppSettings(
         lastSelectedDeviceSerialNumber: nil,
         hasCompletedOnboarding: false,
-        presetsBySerialNumber: [:]
+        presetsBySerialNumber: [:],
+        temperatureUnit: .automatic
     )
 
     init(
         lastSelectedDeviceSerialNumber: String?,
         hasCompletedOnboarding: Bool,
-        presetsBySerialNumber: [String: [DevicePreset]]
+        presetsBySerialNumber: [String: [DevicePreset]],
+        temperatureUnit: TemperatureUnit = .automatic
     ) {
         self.lastSelectedDeviceSerialNumber = lastSelectedDeviceSerialNumber
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.presetsBySerialNumber = presetsBySerialNumber
+        self.temperatureUnit = temperatureUnit
     }
 
     /// Decodes a key at a time so an older settings blob still loads.
@@ -44,5 +51,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             Bool.self, forKey: .hasCompletedOnboarding) ?? false
         presetsBySerialNumber = try container.decodeIfPresent(
             [String: [DevicePreset]].self, forKey: .presetsBySerialNumber) ?? [:]
+        temperatureUnit = try container.decodeIfPresent(
+            TemperatureUnit.self, forKey: .temperatureUnit) ?? .automatic
     }
 }

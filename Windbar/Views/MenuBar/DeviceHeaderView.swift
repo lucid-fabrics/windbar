@@ -18,6 +18,9 @@ struct DeviceHeaderView: View {
     /// collapse is a control that does nothing.
     var isCollapsible = false
     var isExpanded = true
+    /// Display unit for the reading below. Passed in rather than read from a
+    /// shared settings object so this view stays previewable and testable.
+    var temperatureUnit: TemperatureUnit = .automatic
     var onToggleExpanded: () -> Void = {}
     let onCopyTriggerLink: () -> Void
     let onCopyDeviceReport: () -> Void
@@ -113,20 +116,23 @@ struct DeviceHeaderView: View {
         } else if isExpanded {
             HStack(spacing: 5) {
                 Text(device.model)
-                if let temperature = device.state["temperature"]?.intValue {
-                    Text("·")
-                    Text("\(temperature)°").monospacedDigit()
-                }
+                temperature
             }
         } else {
             HStack(spacing: 5) {
                 Text(device.isOn ? runningSummary : "Off")
                     .monospacedDigit()
-                if let temperature = device.state["temperature"]?.intValue {
-                    Text("·")
-                    Text("\(temperature)°").monospacedDigit()
-                }
+                temperature
             }
+        }
+    }
+
+    /// The fan sends Fahrenheit; `temperatureUnit` decides what is shown.
+    @ViewBuilder
+    private var temperature: some View {
+        if let reading = device.state["temperature"]?.intValue {
+            Text("·")
+            Text(temperatureUnit.format(fahrenheit: reading)).monospacedDigit()
         }
     }
 
