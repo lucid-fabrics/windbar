@@ -117,6 +117,63 @@ DONATION_LINK_NEEDLE = 'dRmfZg2K7aTOcD0dMMgYU00'
 # a rejection, and a GitHub build missing it ships an app that can never
 # update and never says so.
 #
+# Re-sign the executables Sparkle nests inside its own framework.
+#
+# Xcode signs Sparkle.framework, and stops there. The four helpers living
+# inside it keep whatever signature they were built with upstream, which is
+# not ours and carries no secure timestamp. `codesign --verify --deep
+# --strict` is perfectly happy with that, because a valid signature is all it
+# asks for. Apple's notary service is not, and names all four:
+#
+#   Autoupdate
+#   Updater.app/Contents/MacOS/Updater
+#   XPCServices/Downloader.xpc/Contents/MacOS/Downloader
+#   XPCServices/Installer.xpc/Contents/MacOS/Installer
+#
+#   "The binary is not signed with a valid Developer ID certificate."
+#   "The signature does not include a secure timestamp."
+#
+# Signing runs innermost first: sealing a nested bundle invalidates every
+# signature above it, so the framework and then the app have to be sealed
+# again afterwards or the app's own signature no longer matches its contents.
+#
+# The version directory is globbed rather than written as "Versions/B".
+# Sparkle picks that letter, and a future release choosing another one would
+# turn a hardcoded path into a silent no-op, which surfaces as a rejected
+# notarization at the end of a long release run. Finding nothing is treated
+# as an error here for the same reason.
+def resign_sparkle_helpers!(app)
+  framework = File.join(app, 'Contents/Frameworks/Sparkle.framework')
+  return UI.important('No Sparkle.framework, so nothing to re-sign') unless File.directory?(framework)
+
+  # Versions/Current is a symlink to the real directory; sign through the real one.
+  versions = Dir.glob("#{framework}/Versions/*").reject { |p| File.symlink?(p) }
+  UI.user_error!("Sparkle.framework has no version directory: #{framework}") if versions.empty?
+  root = versions.first
+
+  helpers = [
+    "#{root}/XPCServices/Downloader.xpc",
+    "#{root}/XPCServices/Installer.xpc",
+    "#{root}/Updater.app",
+    "#{root}/Autoupdate"
+  ].select { |p| File.exist?(p) }
+
+  if helpers.empty?
+    UI.user_error!("Found no Sparkle helpers under #{root}. Their layout changed, and leaving " \
+                   'them unsigned means Apple refuses the build at the end of the release.')
+  end
+
+  sign = "codesign --force --sign 'Developer ID Application' --options runtime --timestamp"
+  # Innermost first, then the framework, then the app whose seal they all sit under.
+  (helpers + [framework]).each do |target|
+    UI.message("re-signing #{target.sub("#{app}/", '')}")
+    sh("#{sign} #{target.shellescape}")
+  end
+  entitlements = File.expand_path('../config/Windbar-Direct.entitlements', __dir__)
+  UI.user_error!("No entitlements at #{entitlements}") unless File.exist?(entitlements)
+  sh("#{sign} --entitlements #{entitlements.shellescape} #{app.shellescape}")
+end
+
 # Submit to Apple's notary service and insist it actually came back Accepted.
 #
 # `notarytool submit --wait` exits 0 for a REJECTED submission. It reports
@@ -465,6 +522,7 @@ platform :mac do
 
     app = "#{archive}/Products/Applications/Windbar.app"
     UI.user_error!("No app at #{app}") unless File.exist?(app)
+    resign_sparkle_helpers!(app)
     sh("codesign --verify --deep --strict --verbose=2 #{app.shellescape}")
     signer = sh("codesign -dv --verbose=2 #{app.shellescape} 2>&1 | grep Authority | head -1", log: false)
     UI.user_error!("App is not Developer ID signed: #{signer}") unless signer.include?('Developer ID Application')
@@ -479,6 +537,18 @@ platform :mac do
     if signed_entitlements.include?('com.apple.security.app-sandbox')
       UI.user_error!('The direct-download build is sandboxed. Its updater cannot replace the app ' \
                      'from inside a sandbox, so the WindbarDirect entitlements did not take effect.')
+    end
+
+    # And that the capabilities are still there. Re-signing the app to seal the
+    # Sparkle helpers hands codesign an entitlements file, so a wrong or empty
+    # one would quietly produce an app that launches, looks fine, and cannot
+    # reach the network or talk to a fan over Bluetooth. Both are read back out
+    # of the signature rather than assumed from the file on disk.
+    %w[com.apple.security.network.client com.apple.security.device.bluetooth].each do |capability|
+      next if signed_entitlements.include?(capability)
+
+      UI.user_error!("#{capability} is missing from the signed app. Re-signing dropped it, so this " \
+                     'build could not reach Dreo or pair a fan. Check config/Windbar-Direct.entitlements.')
     end
 
     unless sparkle_present?(app)
