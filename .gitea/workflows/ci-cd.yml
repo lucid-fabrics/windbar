@@ -20,8 +20,9 @@
 # NO BINARY IS EVER PUBLISHED TO GITHUB. GitHub receives source and README only.
 # The .pkg exists solely inside the runner workspace and is uploaded to Apple.
 #
-# Everything runs on [hackintosh-ios], the one macOS builder (Proxmox VM 102,
-# see RUNBOOK). beeside's iOS pipeline shares it, so concurrent runs queue.
+# Everything runs on the single self-hosted macOS builder (see RUNBOOK for which
+# machine that is; this file is published to a public mirror, so it is not named
+# here). Another pipeline shares it, so concurrent runs queue.
 #
 # Job-level `if` uses plain comparisons only. Gitea 1.27's scheduler panics on
 # failure()/cancelled()/always() at job level and leaves the job stuck "waiting" -
