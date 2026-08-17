@@ -23,9 +23,9 @@
 # The URL itself comes from MATCH_GIT_URL rather than being written here: this repo
 # is public on GitHub, and the Gitea box it points at is a bare LAN IP with no DNS
 # name, so hardcoding it would publish internal network layout for no reason. See
-# RUNBOOK.md > restore_signing.
+# the runbook in the Gitea wiki, under restore_signing.
 match_git_url = ENV['MATCH_GIT_URL']
-UI.user_error!('MATCH_GIT_URL is not set. See RUNBOOK.md > restore_signing.') if match_git_url.to_s.empty?
+UI.user_error!('MATCH_GIT_URL is not set. See the runbook in the Gitea wiki.') if match_git_url.to_s.empty?
 
 git_url(match_git_url)
 git_branch('windbar')

@@ -20,8 +20,9 @@
 # NO BINARY IS EVER PUBLISHED TO GITHUB. GitHub receives source and README only.
 # The .pkg exists solely inside the runner workspace and is uploaded to Apple.
 #
-# Everything runs on [hackintosh-ios], the one macOS builder (Proxmox VM 102,
-# see RUNBOOK). beeside's iOS pipeline shares it, so concurrent runs queue.
+# Everything runs on the single self-hosted macOS builder. Which machine that is
+# lives in the Gitea wiki runbook, not here: this file is published to a public
+# mirror. Another pipeline shares the builder, so concurrent runs queue.
 #
 # Job-level `if` uses plain comparisons only. Gitea 1.27's scheduler panics on
 # failure()/cancelled()/always() at job level and leaves the job stuck "waiting" -
@@ -183,6 +184,25 @@ jobs:
           if git ls-files | grep -qE 'review_information/|\.p12$|\.p8$|\.mobileprovision$|\.provisionprofile$'; then
             echo "Refusing to publish: credential files are tracked in git"
             git ls-files | grep -E 'review_information/|\.p12$|\.p8$|\.mobileprovision$|\.provisionprofile$'
+            exit 1
+          fi
+
+          # And the runbook. It describes the build machine, both runner installs
+          # and which secret unlocks which signing keychain: useful internally,
+          # nobody else's business, and of no value to someone cloning the app.
+          # It lives in the Gitea wiki, which is a separate repository this push
+          # never touches. If it reappears here, it is about to be published.
+          if git ls-files | grep -qiE '(^|/)RUNBOOK\.md$'; then
+            echo "Refusing to publish: RUNBOOK.md is tracked again. It belongs in the Gitea wiki."
+            exit 1
+          fi
+
+          # Bare private IPs. The Gitea host's LAN address reached the public
+          # mirror once through fastlane/.env.example, which is exactly the kind
+          # of thing nobody notices in review.
+          if git grep -nIE '(^|[^0-9.])(192\.168|10\.[0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}' -- . ':!*.png' | grep -q .; then
+            echo "Refusing to publish: a private IP address is committed"
+            git grep -nIE '(^|[^0-9.])(192\.168|10\.[0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}' -- . ':!*.png'
             exit 1
           fi
 

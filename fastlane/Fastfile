@@ -278,7 +278,7 @@ platform :mac do
     KEYCHAINS.each do |path, env_var|
       UI.user_error!("Signing keychain missing: #{path}. Reprovision the CI Mac.") unless File.exist?(path)
       pass = ENV[env_var].to_s
-      UI.user_error!("#{env_var} is not set. It is a Gitea secret, see RUNBOOK.") if pass.empty?
+      UI.user_error!("#{env_var} is not set. It is a Gitea secret, see the Gitea wiki runbook.") if pass.empty?
       # log: false, or the password lands in the job output.
       sh("security unlock-keychain -p #{pass.shellescape} #{path.shellescape}", log: false)
     end
@@ -780,7 +780,7 @@ platform :mac do
       UI.message '  app review contact    : provided by secrets'
     else
       UI.message "  app review contact    : missing #{missing.join(', ')}"
-      UI.message '                          set them as Gitea secrets, not files (see RUNBOOK)'
+      UI.message '                          set them as Gitea secrets, not files (see the Gitea wiki runbook)'
     end
     UI.message '  by hand in ASC only   : App Privacy answers'
     UI.message '  already done          : age rating 4+, content rights, categories, privacy URL,'
