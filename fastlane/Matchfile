@@ -1,24 +1,24 @@
 # Windbar signing assets live on the `windbar` ORPHAN branch of apple-certs.
 #
 # Not `master`. That branch mixes match-V2-encrypted certs with two *unencrypted*
-# beeside .mobileprovision files, and match decrypts everything it clones, so it
-# dies there with "Couldn't decrypt the repo, please make sure you enter the right
-# password". The password is fine; the branch is inconsistent. The orphan branch
-# keeps Windbar's storage clean and leaves beeside's files completely alone.
+# .mobileprovision files belonging to another app, and match decrypts everything it
+# clones, so it dies there with "Couldn't decrypt the repo, please make sure you
+# enter the right password". The password is fine; the branch is inconsistent. The
+# orphan branch keeps Windbar's storage clean and leaves those files alone.
 #
-# The Apple Distribution cert on that branch is the SAME one master holds
-# (4KXK5L7R43), copied byte for byte, so match reuses it and never mints a second.
+# The Apple Distribution cert on that branch is the SAME one master holds, copied
+# byte for byte, so match reuses it and never mints a second.
 #
-# NEVER run `match nuke`, and never port beeside's certificate-prune step here. It
-# keeps only the newest Distribution cert and revokes the rest, which would break
-# beeside, lucidpal and medclear. They all share team KRPUAN3FFA.
+# NEVER run `match nuke`, and never port the certificate-prune step some of the
+# sibling pipelines use. It keeps only the newest Distribution cert and revokes the
+# rest, which would break every other app sharing this Apple team.
 #
 # THIS IS FOR RECOVERY, NOT FOR CI. Normal builds use the persistent keychains
 # already on the build VM and never invoke match. See `fastlane mac restore_signing`.
 #
-# Moved from GitHub (lucid-fabrics/lucidpal-certs) to this self-hosted Gitea repo
-# 2026-07-31. Auth is via MATCH_GIT_BASIC_AUTHORIZATION (base64 "username:token"),
-# supplied by whoever runs restore_signing - not stored in CI secrets.
+# Moved off GitHub onto the self-hosted Gitea 2026-07-31. Auth is via
+# MATCH_GIT_BASIC_AUTHORIZATION (base64 "username:token"), supplied by whoever runs
+# restore_signing - not stored in CI secrets.
 #
 # The URL itself comes from MATCH_GIT_URL rather than being written here: this repo
 # is public on GitHub, and the Gitea box it points at is a bare LAN IP with no DNS
