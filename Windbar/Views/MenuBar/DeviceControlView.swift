@@ -45,6 +45,14 @@ struct DeviceControlView: View {
                 .fill(cardFill)
         )
         .opacity(cardOpacity)
+        // A collapsed row is all target: clicks land on the card's padding as
+        // readily as on the name, and both should open it. Buttons inside the
+        // row (the power switch) still win the click, so this only catches
+        // what nothing else claimed. Expanded cards are exempt because a miss
+        // near a control must never slam the card shut.
+        .onTapGesture {
+            if isCollapsible && !isExpanded { onToggleExpanded() }
+        }
         // An editor left open on a card that gets collapsed would otherwise
         // still be there, mid-edit, whenever the card is expanded again,
         // which is not what closing something looks like.
