@@ -53,7 +53,10 @@ struct StepSlider: View {
     @Environment(\.colorScheme) private var scheme
 
     private var steps: Int { max(range.upperBound - range.lowerBound, 1) }
-    private var progress: Double { Double(value - range.lowerBound) / Double(steps) }
+    /// Fraction of the track filled. The lowest speed fills one whole segment
+    /// rather than zero: an empty bar reads as "off", and this control only
+    /// renders on a fan that is running.
+    private var progress: Double { Double(value - range.lowerBound + 1) / Double(steps + 1) }
 
     var body: some View {
         GeometryReader { geo in

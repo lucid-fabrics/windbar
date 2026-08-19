@@ -34,20 +34,33 @@ struct DeviceHeaderView: View {
         return device.isOn ? Theme.accent : .secondary
     }
 
+    private var isSpinning: Bool { device.isOn && device.isOnline }
+
+    /// One revolution every two seconds, phased off the wall clock so there
+    /// is no per-view rotation state to start, stop or reset.
+    static func spinAngle(at date: Date) -> Double {
+        date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2) * 180
+    }
+
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
             if isCollapsible {
+                // The chevron lives inside the button: it is the one part of
+                // the row that advertises "this opens and closes", so a click
+                // on it has to do exactly that.
                 Button(action: onToggleExpanded) {
-                    identity
+                    HStack(spacing: Theme.Space.snug) {
+                        identity
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                    }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(isExpanded ? "Collapse \(device.deviceName)" : "Expand \(device.deviceName)")
                 .accessibilityAddTraits(isExpanded ? [.isSelected] : [])
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
             } else {
                 identity
             }
@@ -81,10 +94,18 @@ struct DeviceHeaderView: View {
                 Circle()
                     .fill(iconTint.opacity(0.18))
                     .frame(width: 30, height: 30)
-                Image(systemName: device.isOnline ? (device.isOn ? "fan.fill" : "fan") : "fan.slash")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(iconTint)
-                    .symbolEffect(.variableColor.iterative, isActive: device.isOn && device.isOnline)
+                // A running fan spins. The variableColor "breathing" this
+                // replaced read as the app being stuck on something, which is
+                // the opposite of what a healthy running fan should say.
+                // TimelineView rather than a repeatForever animation: pausing
+                // freezes cleanly with no leftover animation state, and it
+                // runs on macOS 14 where `.symbolEffect(.rotate)` does not.
+                TimelineView(.animation(paused: !isSpinning)) { timeline in
+                    Image(systemName: device.isOnline ? (device.isOn ? "fan.fill" : "fan") : "fan.slash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(iconTint)
+                        .rotationEffect(.degrees(isSpinning ? Self.spinAngle(at: timeline.date) : 0))
+                }
             }
 
             VStack(alignment: .leading, spacing: 1) {
