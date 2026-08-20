@@ -55,6 +55,7 @@ struct DeviceHeaderView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.tertiary)
                             .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                            .animation(.snappy(duration: 0.18), value: isExpanded)
                     }
                     .contentShape(Rectangle())
                 }

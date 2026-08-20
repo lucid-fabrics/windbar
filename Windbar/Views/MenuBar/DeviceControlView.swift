@@ -96,16 +96,6 @@ struct DeviceControlView: View {
                 ForEach(sections) { section in
                     sectionView(for: section)
                 }
-                // Unconditional now that the built-in Power row means the
-                // list is never empty. It used to appear only once a preset
-                // existed, which left the power shortcut discoverable solely
-                // by opening More options and finding it there.
-                ShortcutsSection(
-                    appModel: appModel,
-                    device: device,
-                    presets: presets,
-                    onEdit: { presetEditing = .edit($0) }
-                )
                 preferencesSection
             }
             // Nothing sent to an unreachable device can take effect, so
@@ -207,6 +197,7 @@ struct DeviceControlView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
                         .rotationEffect(.degrees(showsPreferences ? 0 : -90))
+                        .animation(.snappy(duration: 0.18), value: showsPreferences)
                     Spacer(minLength: 0)
                 }
                 .textCase(.uppercase)
@@ -226,6 +217,20 @@ struct DeviceControlView: View {
                             )
                         )
                     }
+
+                    // A shortcut is bound once and then never looked at
+                    // again, so the recorders sat on the card taking up a
+                    // third of it to say nothing most days. Folded away here
+                    // they keep what mattered about leaving More options:
+                    // Power and the presets are still one list, still side by
+                    // side, so which one resumes the fan and which one forces
+                    // a saved shape is still readable in one glance.
+                    ShortcutsSection(
+                        appModel: appModel,
+                        device: device,
+                        presets: presets,
+                        onEdit: { presetEditing = .edit($0) }
+                    )
 
                     // A device whose schema has no sections has nothing a
                     // preset could capture. Offering the row anyway just
@@ -247,10 +252,8 @@ struct DeviceControlView: View {
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(.snappy(duration: 0.2), value: showsPreferences)
     }
 
     /// Some preferences read inverted (`muteon` is true when panel sound is

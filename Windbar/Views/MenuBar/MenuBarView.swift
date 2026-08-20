@@ -117,10 +117,14 @@ struct MenuBarView: View {
         }
     }
 
+    /// Deliberately unanimated. `MenuBarExtra(.window)` sizes its panel to
+    /// fit the content and re-anchors it to the menu bar item on every step,
+    /// so animating the height underneath it makes the whole popover shudder
+    /// for as long as the animation runs. Snapping resizes the window once,
+    /// in the same frame the content changes, which is what a menu does
+    /// anyway. The chevron still animates, since rotation costs no height.
     private func toggleExpansion(_ device: DreoDevice) {
-        withAnimation(.snappy(duration: 0.22)) {
-            expansion = isExpanded(device) ? .allCollapsed : .device(device.serialNumber)
-        }
+        expansion = isExpanded(device) ? .allCollapsed : .device(device.serialNumber)
     }
 
     /// Opens on the fan you last touched.

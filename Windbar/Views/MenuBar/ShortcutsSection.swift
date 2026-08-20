@@ -2,15 +2,17 @@ import AppKit
 import KeyboardShortcuts
 import SwiftUI
 
-/// Every keyboard shortcut for one fan, in one list on its card.
+/// Every keyboard shortcut for one fan, in one list under More options.
 ///
-/// These used to be two features in two places: a "Toggle Power" recorder
-/// buried in More options, and preset rows here. Since running a preset a
+/// The list is the point. These used to be two features in two places, a
+/// "Toggle Power" recorder and preset rows, and since running a preset a
 /// second time turns the fan off, the two look like the same thing most of
-/// the time, and their one real difference was written down nowhere. Power
+/// the time. Their one real difference was written down nowhere: Power
 /// resumes the fan exactly as it was, whatever you last nudged by hand; a
-/// preset forces its saved shape every time. Same list, and the Power row
-/// says which it is, so the choice is made where the difference is visible.
+/// preset forces its saved shape every time. Keeping them in one list, with
+/// the Power row saying which it is, makes the choice where the difference
+/// is visible. Where that list lives is the separate question, and it is
+/// folded away because binding a shortcut is a setup act, not a daily one.
 struct ShortcutsSection: View {
     let appModel: AppModel
     let device: DreoDevice
