@@ -11,11 +11,20 @@ extension AppModel {
     /// reported, and the control simply looked broken. The schema says which
     /// switch has to be on, and that is enough to turn it on first.
     func requirement(forKey key: String, on device: DreoDevice) -> String? {
-        (device.controlsConf?.control ?? [])
-            .first { section in
+        guard let section = (device.controlsConf?.control ?? [])
+            .first(where: { section in
                 section.cmd == key || (section.items ?? []).contains { $0.cmd == key }
-            }?
-            .requires
+            }) else { return nil }
+        if let explicit = section.requires { return explicit }
+        // A slider living inside a section that has its own switch (a lamp's
+        // brightness under the lamp's power) implicitly depends on that
+        // switch. The server never spells this out the way overrides can,
+        // and a dimmer moving while the lamp stays dark looks broken.
+        if let toggle = section.cmd, toggle != key,
+           (section.items ?? []).contains(where: { $0.cmd == key && $0.range != nil }) {
+            return toggle
+        }
+        return nil
     }
 
     /// Appends a delivery to a device's chain rather than launching it as an

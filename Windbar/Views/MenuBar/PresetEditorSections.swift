@@ -22,6 +22,8 @@ extension PresetEditor {
             speedControl(for: section)
         case "Oscillation":
             oscillationControl(for: section)
+        case "CFLight":
+            lightControl(for: section)
         case "Color":
             colorControl(for: section)
         case "Toggle":
@@ -69,6 +71,39 @@ extension PresetEditor {
             values[cmd] = target ? onValue : offValue
         } else {
             values[cmd] = .bool(target)
+        }
+    }
+
+    /// Mirrors `DeviceControlView.lightControl`, draft-backed: the lamp's
+    /// switch and its range sliders write into `values` so a preset can hold
+    /// "light on at 40% warm" the same way it holds a speed.
+    @ViewBuilder
+    func lightControl(for section: ControlSection) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            HStack(spacing: Theme.Space.tight) {
+                SectionLabel(title: sectionTitle(section))
+                if let cmd = section.cmd {
+                    Toggle("", isOn: Binding(
+                        get: { values[cmd]?.boolValue ?? false },
+                        set: { values[cmd] = .bool($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+            }
+            ForEach(section.items ?? []) { item in
+                if let range = item.range {
+                    let current = min(max(values[item.cmd]?.intValue ?? range.lowerBound,
+                                          range.lowerBound), range.upperBound)
+                    VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                        SectionLabel(title: item.rangeTitle, trailing: "\(current)")
+                        StepSlider(range: range, value: current) { step in
+                            values[item.cmd] = .int(step)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -125,7 +160,7 @@ extension PresetEditor {
 
     @ViewBuilder
     func chipSection(for section: ControlSection) -> some View {
-        if let items = section.items, !items.isEmpty {
+        if let items = section.items, items.contains(where: { $0.range == nil }) {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 SectionLabel(title: sectionTitle(section))
                 chipRow(items: items)
@@ -133,7 +168,9 @@ extension PresetEditor {
         }
     }
 
-    func chipRow(items: [ControlItem]) -> some View {
+    func chipRow(items allItems: [ControlItem]) -> some View {
+        // Same rule as the device card: a range item is a slider, never a chip.
+        let items = allItems.filter { $0.range == nil }
         let selected = items.first { values[$0.cmd] == $0.value }?.id
         return SegmentedChips(
             items: items,
