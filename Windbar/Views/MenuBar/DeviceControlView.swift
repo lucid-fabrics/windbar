@@ -61,7 +61,9 @@ struct DeviceControlView: View {
         }
         .animation(.easeOut(duration: 0.18), value: device.isOn)
         .animation(.easeOut(duration: 0.18), value: device.isOnline)
-        .animation(.snappy(duration: 0.2), value: presetEditing == nil)
+        // The editor swap is deliberately unanimated, same reason as the
+        // accordion: the card's height changes, and MenuBarExtra(.window)
+        // re-anchors its panel on every animated step of that.
         // Kept out of the card body so a destructive action can't be hit by
         // mistake while reaching for a speed or mode control.
         .contextMenu {
@@ -320,7 +322,6 @@ private extension DeviceControlView {
         // different preset) starts the editor fresh instead of inheriting the
         // previous target's id, name and values from SwiftUI's state store.
         .id(editorIdentity(for: mode))
-        .transition(.opacity)
     }
 
     func editorIdentity(for mode: PresetEditor.Mode) -> String {
