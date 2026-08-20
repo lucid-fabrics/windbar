@@ -697,20 +697,48 @@ platform :mac do
     # found out that 10 is not enough, when processing outlasted the old 20
     # polls and failed a run whose upload had actually succeeded.
     build = nil
+    seen = []
     60.times do |i|
       all = Spaceship::ConnectAPI::Build.all(
         app_id: app.id, platform: Spaceship::ConnectAPI::Platform::MAC_OS, sort: '-uploadedDate'
       )
+      seen = all.first(5).map { |b| "##{b.version} #{b.processing_state}" }
       build = if target_build_number
                 all.find { |b| b.version == target_build_number && b.processing_state == 'VALID' }
               else
                 all.find { |b| b.processing_state == 'VALID' }
               end
       break if build
-      UI.message("Waiting for build #{target_build_number || 'any'} to finish processing (#{i + 1}/60)...")
+
+      # A build Apple has already rejected will never turn VALID, so stop now
+      # rather than spending the rest of the budget waiting for it and then
+      # reporting a timeout that hides the real reason.
+      dead = all.find do |b|
+        b.version == target_build_number && %w[INVALID FAILED].include?(b.processing_state)
+      end
+      if dead
+        UI.user_error!(
+          "Build ##{dead.version} finished processing as #{dead.processing_state}. " \
+          'Apple emails the reason to the account holder; fix it and upload a new build.'
+        )
+      end
+
+      # The states are the diagnosis. Without them a stuck run cannot be told
+      # apart from a build number that never matched anything Apple has.
+      UI.message(
+        "Waiting for build #{target_build_number || 'any'} to finish processing " \
+        "(#{i + 1}/60). Newest on App Store Connect: #{seen.empty? ? 'none' : seen.join(', ')}"
+      )
       sleep(30)
     end
-    UI.user_error!("No VALID build#{" ##{target_build_number}" if target_build_number} to attach") if build.nil?
+    if build.nil?
+      UI.user_error!(
+        "No VALID build#{" ##{target_build_number}" if target_build_number} to attach after 30 minutes. " \
+        "Newest on App Store Connect: #{seen.empty? ? 'none' : seen.join(', ')}. " \
+        'The upload itself succeeded, so re-run the workflow with attach_only rather than ' \
+        'uploading again: Apple caps uploads per app per day.'
+      )
+    end
 
     edit.select_build(build_id: build.id)
     UI.success("Attached build #{build.version} to version #{version}")
