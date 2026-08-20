@@ -17,6 +17,12 @@
 # a binary for a version that already has one, run this workflow by hand with
 # force_appstore.
 #
+# Uploading a build and attaching it to a version are separate operations, and only
+# the upload is rationed. Apple's processing can outlast any wait budget, which
+# fails the run after the upload has already succeeded, so attach_only re-runs just
+# the attach against a build that is already on their side. It skips ci and both
+# GitHub jobs: nothing is built, published or uploaded.
+#
 # NO BINARY IS EVER PUBLISHED TO GITHUB. GitHub receives source and README only.
 # The .pkg exists solely inside the runner workspace and is uploaded to Apple.
 #
@@ -41,6 +47,14 @@ on:
         description: 'Upload to App Store Connect even if MARKETING_VERSION is unchanged'
         type: boolean
         default: false
+      attach_only:
+        description: 'Attach an already-uploaded build to the current version. Builds and uploads nothing.'
+        type: boolean
+        default: false
+      attach_build_number:
+        description: 'Build number to attach. Empty means the newest VALID one.'
+        type: string
+        default: ''
 
 env:
   LANG: en_US.UTF-8
@@ -51,6 +65,7 @@ env:
 jobs:
   ci:
     name: 'CI · build + test'
+    if: github.event.inputs.attach_only != 'true'
     runs-on: [hackintosh-ios]
     steps:
       - uses: actions/checkout@v4
@@ -69,10 +84,40 @@ jobs:
           bundle install --quiet
           bundle exec fastlane mac build_check
 
+  # Attaching costs nothing and can be repeated; uploading cannot, because Apple
+  # caps uploads per app per day. When processing outlasts the wait budget the
+  # build is already on Apple's side, so this re-runs only the attach.
+  cd-attach:
+    name: 'CD · attach build to version'
+    if: github.event.inputs.attach_only == 'true'
+    runs-on: [hackintosh-ios]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Attach the uploaded build
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          ATTACH_BUILD_NUMBER: ${{ github.event.inputs.attach_build_number }}
+        run: |
+          set -eo pipefail
+          export RBENV_ROOT="$HOME/.rbenv"
+          export RBENV_VERSION="3.3.11"
+          export PATH="$RBENV_ROOT/shims:$RBENV_ROOT/bin:$HOME/.local/xcodegen/bin:$PATH"
+
+          ( while true; do echo "... waiting on Apple $(date -u +%H:%M:%S) ..."; sleep 30; done ) & HB=$!
+          trap 'kill $HB 2>/dev/null' EXIT
+
+          bundle install --quiet
+          ARGS=""
+          [ -n "$ATTACH_BUILD_NUMBER" ] && ARGS="build_number:$ATTACH_BUILD_NUMBER"
+          bundle exec fastlane mac attach_latest_build $ARGS
+
   cd-appstore:
     name: 'CD · App Store Connect'
     needs: [ci]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.event.inputs.attach_only != 'true'
     runs-on: [hackintosh-ios]
     steps:
       - uses: actions/checkout@v4
@@ -150,7 +195,7 @@ jobs:
   cd-github-source:
     name: 'CD · publish source to GitHub'
     needs: [ci]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.event.inputs.attach_only != 'true'
     runs-on: [hackintosh-ios]
     steps:
       - uses: actions/checkout@v4
@@ -233,7 +278,7 @@ jobs:
   cd-github-release:
     name: 'CD · notarized DMG to GitHub'
     needs: [ci, cd-github-source]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.event.inputs.attach_only != 'true'
     runs-on: [hackintosh-ios]
     steps:
       - uses: actions/checkout@v4
