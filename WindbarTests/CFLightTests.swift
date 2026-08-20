@@ -99,17 +99,66 @@ final class CFLightTests: XCTestCase {
     }
 
     private func readyModel(device: DreoDevice) async -> AppModel {
+        await readyFixture(device: device).model
+    }
+
+    private func readyFixture(
+        device: DreoDevice
+    ) async -> (model: AppModel, socket: DreoSocketServiceFake) {
         let apiStub = DreoAPIServiceStub()
         await apiStub.setDevicesResult(.success([device]))
         await apiStub.setSession(DreoSession(accessToken: "tok", regionHost: "us"))
+        let socket = DreoSocketServiceFake()
         let model = AppModel(
             apiService: apiStub,
-            socketService: DreoSocketServiceFake(),
+            socketService: socket,
             keychainRepository: KeychainRepositoryFake(stored: DreoCredentials(email: "a@b.com", password: "x")),
             settingsRepository: SettingsRepositoryFake()
         )
         await model.start()
-        return model
+        return (model, socket)
+    }
+
+    // MARK: - Landing the value the lamp was switched on for
+
+    /// Reported on the lamp itself: tapping the dimmer with the lamp off lit
+    /// it at the brightness it had before, while Windbar showed the one that
+    /// was asked for. The order was already right and the fan acked both
+    /// commands, so nothing looked wrong from here: the brightness simply
+    /// arrived while the MCU was still restoring its stored state, and was
+    /// overwritten by that restore. It has to wait the lamp out.
+    func test_dimmerWithTheLampOff_holdsTheBrightnessUntilTheLampHasSettled() async throws {
+        let (model, socket) = await readyFixture(device: try ceilingFan(lighton: false))
+
+        let start = ContinuousClock.now
+        model.setValue(.int(80), forKey: "brightness", on: model.devices[0])
+        await model.settleDeliveries(forSerialNumber: "SN-CF")
+        let elapsed = ContinuousClock.now - start
+
+        let sent = await socket.sentCommands
+        XCTAssertEqual(sent.map(\.key), ["lighton", "brightness"])
+        XCTAssertEqual(sent.last?.value, .int(80))
+        XCTAssertGreaterThanOrEqual(
+            elapsed, Constants.Socket.prerequisiteSettleDelay,
+            "the brightness must not go out while the lamp is still coming on"
+        )
+    }
+
+    /// The wait is the price of switching the lamp on, not of dimming it. A
+    /// lamp already lit has nothing to restore, and paying a second and a
+    /// half per drag there would make the dimmer feel broken in the far more
+    /// common case.
+    func test_dimmerWithTheLampAlreadyOn_sendsTheBrightnessStraightAway() async throws {
+        let (model, socket) = await readyFixture(device: try ceilingFan(lighton: true))
+
+        let start = ContinuousClock.now
+        model.setValue(.int(80), forKey: "brightness", on: model.devices[0])
+        await model.settleDeliveries(forSerialNumber: "SN-CF")
+        let elapsed = ContinuousClock.now - start
+
+        let sent = await socket.sentCommands
+        XCTAssertEqual(sent.map(\.key), ["brightness"])
+        XCTAssertLessThan(elapsed, Constants.Socket.prerequisiteSettleDelay)
     }
 
     /// The server never spells out that the dimmer needs the lamp on, unlike

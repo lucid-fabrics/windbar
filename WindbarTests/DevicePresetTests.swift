@@ -68,7 +68,7 @@ final class DevicePresetTests: XCTestCase {
 
         model.apply(preset: preset, on: model.devices[0])
 
-        try? await Task.sleep(for: .milliseconds(400))
+        await model.settleDeliveries(forSerialNumber: model.devices[0].serialNumber)
         let sent = await socketFake.sentCommands
         // atmon precedes both atmmode and atmbri regardless of the schema
         // listing the effect section before the toggle, and regardless of

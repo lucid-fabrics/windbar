@@ -51,7 +51,7 @@ extension AppModel {
         serialNumber: String,
         deviceName: String
     ) async {
-        for (key, value) in commands {
+        for (index, (key, value)) in commands.enumerated() {
             // The device can have been removed, or the account signed out,
             // while this delivery sat queued behind another one. Nothing is
             // left to talk to, and nothing here should be attributed to
@@ -73,6 +73,15 @@ extension AppModel {
                 }
                 await resyncState(serialNumber: serialNumber)
                 return
+            }
+
+            // An ack from a switch means the command was accepted, not that
+            // the hardware behind it has finished coming on. Let it settle
+            // before the value that depends on it goes out.
+            if index + 1 < commands.count,
+               let device = devices.first(where: { $0.serialNumber == serialNumber }),
+               requirement(forKey: commands[index + 1].key, on: device) == key {
+                try? await Task.sleep(for: Constants.Socket.prerequisiteSettleDelay)
             }
         }
     }
