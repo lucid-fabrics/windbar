@@ -284,12 +284,23 @@ final class AppModel {
         guard let device = devices.first(where: { $0.serialNumber == serialNumber }),
               device.isOnline else { return }
 
-        let values = (device.controlsConf?.control ?? [])
+        let items = (device.controlsConf?.control ?? [])
             .flatMap { $0.items ?? [] }
             .filter { $0.cmd == key }
-            .compactMap(\.value.intValue)
 
-        guard let low = values.min(), let high = values.max(), low < high else { return }
+        let low: Int
+        let high: Int
+        if let range = items.compactMap(\.range).first {
+            // A range control (a lamp's dimmer) is one item carrying bounds,
+            // so the discrete scan below would see a single value and bail.
+            low = range.lowerBound
+            high = range.upperBound
+        } else {
+            let values = items.compactMap(\.value.intValue)
+            guard let least = values.min(), let most = values.max(), least < most else { return }
+            low = least
+            high = most
+        }
         let current = device.state[key]?.intValue ?? low
         let next = min(max(current + delta, low), high)
         guard next != current else { return }

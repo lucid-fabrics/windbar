@@ -11,6 +11,10 @@ extension DeviceControlView {
             speedControl(for: section)
         case "Oscillation":
             oscillationControl(for: section)
+        case "CFLight":
+            // A ceiling fan's lamp: its own power switch plus range items
+            // (brightness, colour temperature) rendered as sliders.
+            lightControl(for: section)
         case "Color":
             colorControl(for: section)
         case "Toggle":
@@ -46,6 +50,36 @@ extension DeviceControlView {
     }
 
     @ViewBuilder
+    func lightControl(for section: ControlSection) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            HStack(spacing: Theme.Space.tight) {
+                SectionLabel(title: sectionTitle(section))
+                if let cmd = section.cmd {
+                    Toggle("", isOn: Binding(
+                        get: { device.state[cmd]?.boolValue ?? false },
+                        set: { appModel.setValue(.bool($0), forKey: cmd, on: device) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+            }
+            ForEach(section.items ?? []) { item in
+                if let range = item.range {
+                    let current = min(max(device.state[item.cmd]?.intValue ?? range.lowerBound,
+                                          range.lowerBound), range.upperBound)
+                    VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                        SectionLabel(title: item.rangeTitle, trailing: "\(current)")
+                        StepSlider(range: range, value: current) { step in
+                            appModel.setValue(.int(step), forKey: item.cmd, on: device)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     func oscillationControl(for section: ControlSection) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             HStack(spacing: Theme.Space.tight) {
@@ -68,7 +102,7 @@ extension DeviceControlView {
 
     @ViewBuilder
     func chipSection(for section: ControlSection) -> some View {
-        if let items = section.items, !items.isEmpty {
+        if let items = section.items, items.contains(where: { $0.range == nil }) {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 SectionLabel(title: sectionTitle(section))
                 chipRow(items: items)
@@ -76,7 +110,11 @@ extension DeviceControlView {
         }
     }
 
-    func chipRow(items: [ControlItem]) -> some View {
+    func chipRow(items allItems: [ControlItem]) -> some View {
+        // Range items are sliders, not choices. Only CFLight routes them to
+        // sliders today; one appearing in any other section must not become
+        // a chip whose borrowed label sends the range's minimum.
+        let items = allItems.filter { $0.range == nil }
         let selected = items.first { device.state[$0.cmd] == $0.value }?.id
         return SegmentedChips(
             items: items,

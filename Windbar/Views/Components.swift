@@ -53,10 +53,23 @@ struct StepSlider: View {
     @Environment(\.colorScheme) private var scheme
 
     private var steps: Int { max(range.upperBound - range.lowerBound, 1) }
+    private var progress: Double { Self.fillFraction(value: value, range: range) }
+
     /// Fraction of the track filled. The lowest speed fills one whole segment
     /// rather than zero: an empty bar reads as "off", and this control only
     /// renders on a fan that is running.
-    private var progress: Double { Double(value - range.lowerBound + 1) / Double(steps + 1) }
+    static func fillFraction(value: Int, range: ClosedRange<Int>) -> Double {
+        let steps = max(range.upperBound - range.lowerBound, 1)
+        return Double(value - range.lowerBound + 1) / Double(steps + 1)
+    }
+
+    /// The step whose tick is nearest to a horizontal position on the track,
+    /// expressed as a 0...1 ratio of the track width.
+    static func step(atRatio ratio: Double, range: ClosedRange<Int>) -> Int {
+        let steps = max(range.upperBound - range.lowerBound, 1)
+        let clamped = min(max(ratio, 0), 1)
+        return range.lowerBound + Int((clamped * Double(steps)).rounded())
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -68,18 +81,23 @@ struct StepSlider: View {
                     .fill(Theme.accent)
                     .frame(width: max(10, width * progress))
 
-                HStack(spacing: 0) {
-                    ForEach(range.lowerBound...range.upperBound, id: \.self) { step in
-                        if step > range.lowerBound { Spacer(minLength: 0) }
-                        Circle()
-                            // Ticks sit on the accent below the current step
-                            // and on the bare track above it, so each half
-                            // needs its own contrast.
-                            .fill(step <= value ? Theme.onAccent.opacity(0.4) : Color.primary.opacity(0.22))
-                            .frame(width: 2, height: 2)
+                // A wide range (a 1-100 dimmer) would pack its ticks into an
+                // unreadable smear, and nobody counts to a specific dot at
+                // that granularity anyway, so the track goes smooth instead.
+                if steps <= 24 {
+                    HStack(spacing: 0) {
+                        ForEach(range.lowerBound...range.upperBound, id: \.self) { step in
+                            if step > range.lowerBound { Spacer(minLength: 0) }
+                            Circle()
+                                // Ticks sit on the accent below the current step
+                                // and on the bare track above it, so each half
+                                // needs its own contrast.
+                                .fill(step <= value ? Theme.onAccent.opacity(0.4) : Color.primary.opacity(0.22))
+                                .frame(width: 2, height: 2)
+                        }
                     }
+                    .padding(.horizontal, 5)
                 }
-                .padding(.horizontal, 5)
             }
             .frame(height: 10)
             .contentShape(Rectangle())
@@ -87,8 +105,7 @@ struct StepSlider: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         guard width > 0 else { return }
-                        let ratio = min(max(drag.location.x / width, 0), 1)
-                        let step = range.lowerBound + Int((ratio * Double(steps)).rounded())
+                        let step = Self.step(atRatio: drag.location.x / width, range: range)
                         if step != value { onChange(step) }
                     }
             )

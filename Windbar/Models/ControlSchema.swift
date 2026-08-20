@@ -63,5 +63,74 @@ struct ControlItem: Codable, Equatable, Identifiable, Sendable {
     let cmd: String
     let value: DreoValue
 
+    /// Range-style items carry bounds instead of one discrete value. A
+    /// ceiling fan's lamp describes its brightness as `minValue` 1 to
+    /// `maxValue` 100 with no `value` at all, and requiring one silently
+    /// dropped the whole light section from those fans.
+    let minValue: Int?
+    let maxValue: Int?
+    /// The vendor's kind tag on range items: "light" for a dimmer, "color"
+    /// for a colour-temperature ramp. Discrete items do not carry it.
+    let itemType: String?
+
     var id: String { "\(cmd)_\(value)" }
+
+    var range: ClosedRange<Int>? {
+        guard let minValue, let maxValue, minValue < maxValue else { return nil }
+        return minValue...maxValue
+    }
+
+    /// Slider caption for a range item. The vendor reuses unrelated mode
+    /// strings in these items' `text` ("Natural" on a dimmer), so the kind
+    /// tag is the only field that says what the slider actually does.
+    var rangeTitle: String {
+        switch itemType {
+        case "light": return "Brightness"
+        case "color": return "Color Temperature"
+        default: return cmd.dreoTitleCased
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text, cmd, value, minValue, maxValue
+        case itemType = "type"
+    }
+
+    init(
+        text: String,
+        cmd: String,
+        value: DreoValue,
+        minValue: Int? = nil,
+        maxValue: Int? = nil,
+        itemType: String? = nil
+    ) {
+        self.text = text
+        self.cmd = cmd
+        self.value = value
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.itemType = itemType
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        cmd = try container.decode(String.self, forKey: .cmd)
+        minValue = try container.decodeIfPresent(Int.self, forKey: .minValue)
+        maxValue = try container.decodeIfPresent(Int.self, forKey: .maxValue)
+        itemType = try container.decodeIfPresent(String.self, forKey: .itemType)
+        // A range item has no discrete value; its lower bound stands in so
+        // `id` and every site that only reads `cmd` keep working unchanged.
+        // An item with neither is genuinely malformed and throws, which the
+        // lossy section decode turns into a dropped section rather than a
+        // phantom chip that would send 0 to the fan.
+        guard let resolved = try container.decodeIfPresent(DreoValue.self, forKey: .value)
+                ?? minValue.map(DreoValue.int) else {
+            throw DecodingError.keyNotFound(CodingKeys.value, .init(
+                codingPath: decoder.codingPath,
+                debugDescription: "control item has neither value nor minValue"
+            ))
+        }
+        value = resolved
+    }
 }
