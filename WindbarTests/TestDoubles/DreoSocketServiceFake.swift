@@ -65,3 +65,17 @@ actor DreoSocketServiceFake: DreoSocketServiceProtocol {
         artificialDelay = duration
     }
 }
+
+extension AppModel {
+    /// Waits for everything a control change sets in motion: the coalescing
+    /// debounce, then the delivery itself.
+    ///
+    /// A fixed sleep used to be enough. It stopped being enough once a batch
+    /// started parking between a switch-on and the value that depends on it,
+    /// and padding every test by that pause would have bought nothing but a
+    /// slower suite and a new number to keep in sync with the constant.
+    func settleDeliveries(forSerialNumber serialNumber: String) async {
+        try? await Task.sleep(for: Constants.Socket.controlSettleDelay + .milliseconds(120))
+        await deliveryChains[serialNumber]?.value
+    }
+}

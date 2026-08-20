@@ -25,6 +25,17 @@ enum Constants {
         /// wire. Long enough to swallow a slider drag, short enough that a
         /// single tap still feels immediate.
         static let controlSettleDelay: Duration = .milliseconds(180)
+        /// How long a switch that another control depends on gets to settle
+        /// before the value depending on it goes out.
+        ///
+        /// A ceiling fan's lamp acks a brightness sent right after its own
+        /// power-on and then lights at the brightness it had before: the MCU
+        /// is still restoring its stored state while the command lands, so
+        /// the command is accepted and then overwritten. Nothing fails, and
+        /// the app is left showing a brightness the room does not have.
+        /// Waiting until the restore is done is the only way to land after
+        /// it. Paid once, and only when the switch was off to begin with.
+        static let prerequisiteSettleDelay: Duration = .milliseconds(1500)
     }
 
     enum Keychain {

@@ -88,7 +88,7 @@ final class DeliveryPipelineTests: XCTestCase {
         // rebuild would, before the fan has answered anything.
         model.setValue(.int(0x00FF00), forKey: "atmcolor", on: model.devices[0])
 
-        try? await Task.sleep(for: .milliseconds(400))
+        await model.settleDeliveries(forSerialNumber: model.devices[0].serialNumber)
         let sent = await socket.sentCommands
         XCTAssertEqual(sent.map(\.key), ["atmon", "atmcolor"], "the switch-on must survive the second tap")
         XCTAssertEqual(sent.last?.value, .int(0x00FF00))

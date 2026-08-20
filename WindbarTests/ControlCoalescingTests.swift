@@ -37,7 +37,7 @@ final class ControlCoalescingTests: XCTestCase {
 
         model.setValue(.int(0xFF0000), forKey: "atmcolor", on: model.devices[0])
 
-        try? await Task.sleep(for: .milliseconds(400))
+        await model.settleDeliveries(forSerialNumber: model.devices[0].serialNumber)
         let sent = await socket.sentCommands
         XCTAssertEqual(sent.map(\.key), ["atmon", "atmcolor"])
         XCTAssertEqual(sent.first?.value, .bool(true))
@@ -120,7 +120,7 @@ final class ControlCoalescingTests: XCTestCase {
             model.setValue(.int(step), forKey: "atmcolor", on: asCapturedAtDragStart)
         }
 
-        try? await Task.sleep(for: .milliseconds(500))
+        await model.settleDeliveries(forSerialNumber: model.devices[0].serialNumber)
         let sent = await socket.sentCommands
         XCTAssertEqual(sent.map(\.key), ["atmon", "atmcolor"], "one switch-on, one value")
         XCTAssertEqual(sent.last?.value, .int(6), "and it is the value the drag ended on")
