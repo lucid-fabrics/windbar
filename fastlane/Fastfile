@@ -693,9 +693,11 @@ platform :mac do
 
     # Apple needs a few minutes after upload before a build is queryable at all,
     # let alone VALID, so this has to keep polling rather than accept whatever is
-    # already there on the first pass.
+    # already there on the first pass. 30 minutes of budget: the 1.2.0 release
+    # found out that 10 is not enough, when processing outlasted the old 20
+    # polls and failed a run whose upload had actually succeeded.
     build = nil
-    20.times do |i|
+    60.times do |i|
       all = Spaceship::ConnectAPI::Build.all(
         app_id: app.id, platform: Spaceship::ConnectAPI::Platform::MAC_OS, sort: '-uploadedDate'
       )
@@ -705,7 +707,7 @@ platform :mac do
                 all.find { |b| b.processing_state == 'VALID' }
               end
       break if build
-      UI.message("Waiting for build #{target_build_number || 'any'} to finish processing (#{i + 1}/20)...")
+      UI.message("Waiting for build #{target_build_number || 'any'} to finish processing (#{i + 1}/60)...")
       sleep(30)
     end
     UI.user_error!("No VALID build#{" ##{target_build_number}" if target_build_number} to attach") if build.nil?
