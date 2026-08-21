@@ -1,3 +1,3 @@
-Ceiling fan light controls: on/off, brightness and color temperature for the DR-HCF001S, in the device card and in presets.
+The ceiling fan's light now comes on at the brightness you asked for, instead of the one it had before.
 
-Polish from user feedback: a collapsed fan expands from a click anywhere on its row, the fan icon spins while it runs and the lowest speed shows a filled bar instead of looking off.
+The popover no longer shudders when a fan expands or More options opens, and the keyboard shortcut recorders moved under More options to keep the card focused on daily controls.

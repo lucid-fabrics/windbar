@@ -213,7 +213,7 @@ Windbar/
 ```
 
 Swift 6 with strict concurrency on. `@MainActor @Observable` for app state, actors for anything
-doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 176 tests,
+doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 177 tests,
 none of which touch the network or the real Keychain.
 
 Two app targets are generated from `project.yml`, sharing one `sources` line so they can't drift
