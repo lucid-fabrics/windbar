@@ -47,10 +47,20 @@ struct MenuBarView: View {
     private var ready: some View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
             if appModel.devices.isEmpty {
-                StatusPlaceholder(
-                    systemImage: "fan.slash",
-                    message: "No Dreo devices on this account yet."
-                )
+                // An empty popover teaches the next step and hands over the
+                // button for it, rather than leaving it in the footer list.
+                VStack(spacing: 0) {
+                    StatusPlaceholder(
+                        systemImage: "fan.slash",
+                        message: "No Dreo devices on this account yet. "
+                            + "Pair a fan straight from this Mac over Bluetooth."
+                    )
+                    Button("Add a Device…", action: openAddDevice)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .padding(.bottom, Theme.Space.loose)
+                }
+                .frame(maxWidth: .infinity)
             } else {
                 VStack(spacing: Theme.Space.snug) {
                     ForEach(appModel.devices) { device in
@@ -90,6 +100,14 @@ struct MenuBarView: View {
         .onAppear { appModel.donations.popoverDidOpen() }
         .animation(.easeInOut(duration: 0.18), value: appModel.donations.isShowing)
         #endif
+    }
+
+    private func openAddDevice() {
+        appModel.hasRequestedPairing = true
+        // Order matters: activating before the window exists leaves it
+        // behind whatever app was frontmost.
+        openWindow(id: "add-device")
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Accordion
@@ -150,12 +168,9 @@ struct MenuBarView: View {
             }
             .keyboardShortcut("r")
 
-            HoverRow(icon: "plus.circle", title: "Add a Device…") {
-                appModel.hasRequestedPairing = true
-                // Order matters: activating before the window exists leaves
-                // it behind whatever app was frontmost.
-                openWindow(id: "add-device")
-                NSApp.activate(ignoringOtherApps: true)
+            // The empty state already carries this as its primary button.
+            if !appModel.devices.isEmpty {
+                HoverRow(icon: "plus.circle", title: "Add a Device…", action: openAddDevice)
             }
 
             HoverRow(icon: "gearshape", title: "Preferences…") {

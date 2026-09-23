@@ -4,6 +4,8 @@ import SwiftUI
 /// left on screen until the person says the fan is ready, because the fan
 /// only advertises for a short window after the button press.
 struct PairingInstructions: View {
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.roomy) {
             Text("Put the fan into pairing mode first, then this Mac can set it up over Bluetooth. "
@@ -14,15 +16,29 @@ struct PairingInstructions: View {
 
             VStack(alignment: .leading, spacing: Theme.Space.snug) {
                 step(1, "Plug the fan in and switch it on.")
-                step(2, "Hold the Oscillation button for about 5 seconds.")
+                // The button differs by model and the model is unknown until
+                // pairing finishes, so name both rather than guess one.
+                step(2, "Hold the pairing button for about 5 seconds. On most Dreo fans "
+                     + "that is Oscillation; some have a WiFi button instead.")
                 step(3, "Wait for the WiFi light to start blinking.")
                 step(4, "Keep the fan within a few metres of this Mac.")
             }
 
-            Text("Fans join 2.4 GHz networks only, so have that password handy.")
-                .font(Theme.Font.caption)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            // The most common reason pairing fails, so it gets a filled,
+            // readable callout rather than a faint footnote.
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.tight) {
+                Image(systemName: "wifi")
+                    .foregroundStyle(Theme.accent)
+                Text("Fans join 2.4 GHz networks only, so have that network's password handy.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(Theme.Font.body)
+            .padding(Theme.Space.snug)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Metric.controlRadius, style: .continuous)
+                    .fill(Theme.accentTint(scheme))
+            )
         }
     }
 
