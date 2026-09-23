@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// The top strip of a device card: icon, name, a line of state, the options
-/// menu and the power toggle. Kept out of `DeviceControlView` so that file
+/// The top strip of a device card: icon, name, a line of state and the
+/// power toggle. Kept out of `DeviceControlView` so that file
 /// stays under the type-body-length budget; nothing about this header is
 /// specific to one fan model.
 ///
 /// It is also the whole of a collapsed card, which is what makes more than
 /// two fans usable in a 320pt popover. Everything reached daily has to
 /// survive the collapse: the power switch stays live, and the meta line
-/// switches from identifying the fan (model, which never changes) to
-/// reporting it (running or not, how fast), because that is the thing worth
-/// knowing at a glance about a fan you are not currently adjusting.
+/// reports the fan (running or not, how fast, the room it sits in) whether
+/// the card is open or not. A model code like DR-HEC005S says nothing to
+/// someone looking at their fan; it lives in the device report instead.
 struct DeviceHeaderView: View {
     let device: DreoDevice
     /// False only when this is the sole fan on the account. One device needs
@@ -22,9 +22,6 @@ struct DeviceHeaderView: View {
     /// shared settings object so this view stays previewable and testable.
     var temperatureUnit: TemperatureUnit = .automatic
     var onToggleExpanded: () -> Void = {}
-    let onCopyTriggerLink: () -> Void
-    let onCopyDeviceReport: () -> Void
-    let onRemove: () -> Void
     let onTogglePower: () -> Void
 
     @Environment(\.colorScheme) private var scheme
@@ -66,18 +63,6 @@ struct DeviceHeaderView: View {
                 identity
             }
 
-            // Hidden while collapsed: everything behind it (trigger link,
-            // diagnostics, removal) is a deliberate, occasional action, and a
-            // collapsed row earns its keep by being scannable.
-            if isExpanded {
-                DeviceOptionsMenu(
-                    deviceName: device.deviceName,
-                    onCopyTriggerLink: onCopyTriggerLink,
-                    onCopyDeviceReport: onCopyDeviceReport,
-                    onRemove: onRemove
-                )
-            }
-
             Toggle("Power", isOn: Binding(
                 get: { device.isOn },
                 set: { _ in onTogglePower() }
@@ -108,12 +93,14 @@ struct DeviceHeaderView: View {
                         .rotationEffect(.degrees(isSpinning ? Self.spinAngle(at: timeline.date) : 0))
                 }
             }
+            .overlay(alignment: .bottomTrailing) { waterBadge }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(device.deviceName)
                     .font(Theme.Font.deviceName)
                     .lineLimit(1)
                 meta
+                    .monospacedDigit()
                     .font(Theme.Font.deviceMeta)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -124,37 +111,39 @@ struct DeviceHeaderView: View {
         .contentShape(Rectangle())
     }
 
-    /// Expanded, the controls below already say what the fan is doing, so the
-    /// meta line identifies it instead. Collapsed, they are gone and this line
-    /// is all that is left, so it reports state.
-    @ViewBuilder
-    private var meta: some View {
-        if !device.isOnline {
-            HStack(spacing: 5) {
-                Text("Offline").foregroundStyle(.secondary)
-                Text("·")
-                Text(device.model)
-            }
-        } else if isExpanded {
-            HStack(spacing: 5) {
-                Text(device.model)
-                temperature
-            }
-        } else {
-            HStack(spacing: 5) {
-                Text(device.isOn ? runningSummary : "Off")
-                    .monospacedDigit()
-                temperature
-            }
+    /// State, never identity: the same line open or closed, so opening a
+    /// card never swaps what it says for a model code.
+    ///
+    /// One concatenated `Text` rather than an HStack of pieces: when the line
+    /// is too long for the popover it loses its tail (the humidity) instead
+    /// of every piece being cut to "Sp…". Most urgent first for that reason.
+    private var meta: Text {
+        guard device.isOnline else { return Text("Offline").foregroundStyle(.secondary) }
+        var parts: [Text] = []
+        if device.isWaterTankEmpty {
+            parts.append(Text("\(Image(systemName: "drop.triangle.fill")) Tank empty").foregroundStyle(Theme.danger))
         }
+        parts.append(Text(device.isOn ? runningSummary : "Off"))
+        if device.isMisting && !device.isWaterTankEmpty { parts.append(Text("Misting")) }
+        if let reading = device.state["temperature"]?.intValue {
+            parts.append(Text(temperatureUnit.format(fahrenheit: reading)))
+        }
+        if let humidity = device.humidity { parts.append(Text("\(humidity)%")) }
+        return parts.dropFirst().reduce(parts[0]) { $0 + Text(" · ") + $1 }
     }
 
-    /// The fan sends Fahrenheit; `temperatureUnit` decides what is shown.
+    /// A drop on the fan icon while it mists, red when the tank is dry, so
+    /// the state reads from the icon alone as well as from the meta line.
     @ViewBuilder
-    private var temperature: some View {
-        if let reading = device.state["temperature"]?.intValue {
-            Text("·")
-            Text(temperatureUnit.format(fahrenheit: reading)).monospacedDigit()
+    private var waterBadge: some View {
+        if device.isOnline, device.isWaterTankEmpty || device.isMisting {
+            Image(systemName: "drop.fill")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(device.isWaterTankEmpty ? Theme.danger : Theme.accent)
+                .padding(2)
+                .background(Circle().fill(.background))
+                .offset(x: 3, y: 3)
+                .accessibilityHidden(true)
         }
     }
 

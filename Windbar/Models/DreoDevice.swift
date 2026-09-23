@@ -41,6 +41,24 @@ struct DreoDevice: Identifiable, Equatable, Sendable {
         state[powerKey]?.boolValue ?? false
     }
 
+    /// Misting fans report their pump as `miston`; nothing else does.
+    var isMisting: Bool {
+        isOn && state["miston"]?.boolValue == true
+    }
+
+    /// Relative humidity in percent, for the models with a sensor.
+    var humidity: Int? {
+        state["rh"]?.intValue
+    }
+
+    /// `wrong` is 1 when a misting fan's tank runs dry, per hass-dreo's
+    /// evaporative cooler driver. Scoped to misting models, since other
+    /// products may use the same key for something else.
+    /// ponytail: read from hass-dreo, not seen on hardware; confirm on the 765S (issue #3).
+    var isWaterTankEmpty: Bool {
+        state["miston"] != nil && state["wrong"]?.intValue == 1
+    }
+
     mutating func apply(_ updates: [String: DreoValue]) {
         for (key, value) in updates {
             state[key] = value

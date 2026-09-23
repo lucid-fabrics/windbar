@@ -18,6 +18,11 @@ struct DeviceControlView: View {
 
     @Environment(\.colorScheme) private var scheme
     @State private var showsPreferences = false
+    @State private var isHoveringMore = false
+    /// Title of the action row that just copied something, shown as
+    /// "Copied" for a moment so a click that changes nothing on screen
+    /// still says it worked.
+    @State private var justCopied: String?
     /// Non-nil while the preset editor has taken over the card. Held here
     /// rather than in the presets section so the editor can replace the
     /// whole card instead of nesting a panel inside it.
@@ -87,6 +92,9 @@ struct DeviceControlView: View {
                 .font(Theme.Font.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            // A fan that is gone for good still has to be removable, and
+            // its report is what a bug about it needs.
+            deviceActions
         } else {
             VStack(alignment: .leading, spacing: Theme.Space.roomy) {
                 if sections.isEmpty {
@@ -144,6 +152,32 @@ struct DeviceControlView: View {
         Task { await appModel.removeDevice(device) }
     }
 
+    /// Occasional, deliberate actions, each named on screen. They used to
+    /// hide behind an unlabelled ellipsis in the header.
+    private var deviceActions: some View {
+        VStack(spacing: 0) {
+            if device.isOnline {
+                copyRow(icon: "link", title: "Copy Trigger Link", action: copyTriggerLink)
+            }
+            copyRow(icon: "doc.on.clipboard", title: "Copy Device Report", action: copyDeviceReport)
+            HoverRow(icon: "trash", title: "Remove Device…", action: confirmRemoval)
+        }
+    }
+
+    private func copyRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        HoverRow(
+            icon: justCopied == title ? "checkmark" : icon,
+            title: justCopied == title ? "Copied" : title
+        ) {
+            action()
+            justCopied = title
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                if justCopied == title { justCopied = nil }
+            }
+        }
+    }
+
     // MARK: - Header
 
     private var cardOpacity: Double {
@@ -178,9 +212,6 @@ struct DeviceControlView: View {
             isExpanded: isExpanded,
             temperatureUnit: appModel.settings.temperatureUnit,
             onToggleExpanded: onToggleExpanded,
-            onCopyTriggerLink: copyTriggerLink,
-            onCopyDeviceReport: copyDeviceReport,
-            onRemove: confirmRemoval,
             onTogglePower: { appModel.togglePower(for: device) }
         )
     }
@@ -189,24 +220,32 @@ struct DeviceControlView: View {
 
     private var preferencesSection: some View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            // Filled and hover-lit so it reads as a button. The uppercase
+            // micro-label it used to be looked like one more section heading.
             Button {
                 showsPreferences.toggle()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: Theme.Space.tight) {
                     Text(showsPreferences ? "Fewer options" : "More options")
-                        .font(Theme.Font.sectionLabel)
-                        .tracking(0.7)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .rotationEffect(.degrees(showsPreferences ? 0 : -90))
-                        .animation(.snappy(duration: 0.18), value: showsPreferences)
+                        .font(Theme.Font.row)
                     Spacer(minLength: 0)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(showsPreferences ? 180 : 0))
+                        .animation(.snappy(duration: 0.18), value: showsPreferences)
                 }
-                .textCase(.uppercase)
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, Theme.Space.snug)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Metric.controlRadius, style: .continuous)
+                        .fill(isHoveringMore ? Theme.surfaceRaised(scheme) : Theme.surface(scheme))
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { isHoveringMore = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHoveringMore)
 
             if showsPreferences {
                 VStack(spacing: Theme.Space.snug) {
@@ -253,6 +292,8 @@ struct DeviceControlView: View {
                             presetEditing = .create
                         }
                     }
+
+                    deviceActions
                 }
             }
         }

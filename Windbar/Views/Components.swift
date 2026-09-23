@@ -252,7 +252,7 @@ struct HoverRow: View {
         .disabled(isLoading)
         .background(
             RoundedRectangle(cornerRadius: Theme.Metric.controlRadius, style: .continuous)
-                .fill(isHovering ? Theme.surface(scheme) : .clear)
+                .fill(isHovering ? Theme.surfaceRaised(scheme) : .clear)
         )
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovering)

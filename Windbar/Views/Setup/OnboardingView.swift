@@ -272,11 +272,11 @@ private struct WelcomeScreen: View {
     private var features: some View {
         VStack(spacing: Theme.Space.tight + 2) {
             FeatureRow(icon: "fan.fill", title: "Full fan control",
-                       subtitle: "Power, speed, mode, oscillation, lights")
-            FeatureRow(icon: "bolt.fill", title: "Live socket",
-                       subtitle: "Changes apply in under a second")
-            FeatureRow(icon: "keyboard", title: "Global hotkey",
-                       subtitle: "Toggle your last fan from anywhere")
+                       subtitle: "Power, speed, mode, oscillation, lights, mist")
+            FeatureRow(icon: "bolt.fill", title: "Instant",
+                       subtitle: "Changes reach the fan in under a second")
+            FeatureRow(icon: "keyboard", title: "Keyboard shortcuts",
+                       subtitle: "Turn any fan or preset on from anywhere")
         }
     }
 }
