@@ -223,5 +223,73 @@
       }
     ],
     "preference": []
+  },
+  "DR-HEC005S": {
+    "_source": {
+      "product": "Dreo TurboCool Misting Fan 765S.",
+      "method": "Not probed against hardware here. Keys and values come from the device report attached to GitHub issue #3 (lucid-fabrics/windbar), cross-checked against the DR-HEC005S entry in JeffSteinbok/hass-dreo (pydreo/models.py), which drives this model in Home Assistant. Awaiting confirmation by eye from the owner.",
+      "mode-4-natural": "hass-dreo maps this model's modes as normal 1, auto 2, sleep 3, natural 4. The vendor config ships only 1-3.",
+      "hoscon": "Bool, horizontal oscillation. Reported as false in the device report; hass-dreo sends it for evaporative coolers.",
+      "miston": "Bool, the misting pump. Reported as true in the device report; hass-dreo exposes it as the Misting switch.",
+      "foglevel": "Mist strength. hass-dreo declares a 1-4 range for this model; the device report shows 1.",
+      "not-yet": "rhmode (0 or 2), rhtarget and rhsuspend drive the auto-humidity target. Left out until the owner confirms what the fan does with them."
+    },
+    "control": [
+      {
+        "id": "100",
+        "type": "Mode",
+        "title": "Mode",
+        "items": [
+          {
+            "cmd": "mode",
+            "text": "Natural",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "id": "120",
+        "cmd": "hoscon",
+        "type": "Toggle",
+        "title": "Oscillation",
+        "reverse": false
+      },
+      {
+        "id": "140",
+        "cmd": "miston",
+        "type": "Toggle",
+        "title": "Misting",
+        "reverse": false
+      },
+      {
+        "id": "150",
+        "type": "MistLevel",
+        "title": "Mist Level",
+        "items": [
+          {
+            "cmd": "foglevel",
+            "text": "1",
+            "value": 1
+          },
+          {
+            "cmd": "foglevel",
+            "text": "2",
+            "value": 2
+          },
+          {
+            "cmd": "foglevel",
+            "text": "3",
+            "value": 3
+          },
+          {
+            "cmd": "foglevel",
+            "text": "4",
+            "value": 4
+          }
+        ],
+        "requires": "miston"
+      }
+    ],
+    "preference": []
   }
 }

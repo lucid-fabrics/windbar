@@ -43,6 +43,23 @@ final class DeviceTemplateCatalogTests: XCTestCase {
         XCTAssertEqual((oscillation.items ?? []).compactMap(\.value.intValue), [0, 1, 2, 3, 4])
     }
 
+    /// The 765S misting fan's vendor config has no mist, oscillation or
+    /// Natural mode. Mist level is gated on the pump, so picking a level
+    /// with misting off turns it on rather than doing nothing.
+    func test_overrides_addMistingToThe765S() throws {
+        let schema = try XCTUnwrap(DeviceTemplateCatalog.schema(forModel: "DR-HEC005S"))
+
+        let mode = try XCTUnwrap(schema.control.first { $0.id == "100" })
+        XCTAssertEqual((mode.items ?? []).compactMap(\.value.intValue), [1, 3, 2, 4])
+
+        XCTAssertEqual(schema.control.first { $0.title == "Oscillation" }?.cmd, "hoscon")
+        XCTAssertEqual(schema.control.first { $0.title == "Misting" }?.cmd, "miston")
+
+        let mist = try XCTUnwrap(schema.control.first { $0.title == "Mist Level" })
+        XCTAssertEqual((mist.items ?? []).compactMap(\.value.intValue), [1, 2, 3, 4])
+        XCTAssertEqual(mist.requires, "miston")
+    }
+
     /// Every ambient-light range below was mapped by probing the fan until it
     /// refused a value, so a drift here means someone widened a range without
     /// checking it against hardware.
