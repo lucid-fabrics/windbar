@@ -1,3 +1,3 @@
-The ceiling fan's light now comes on at the brightness you asked for, instead of the one it had before.
+TurboCool Misting Fan 765S: Misting on/off, Mist Level 1-4, Oscillation and Natural mode now appear in its card and in presets.
 
-The popover no longer shudders when a fan expands or More options opens, and the keyboard shortcut recorders moved under More options to keep the card focused on daily controls.
+Every card now shows what its fan is doing, including humidity and a Tank empty warning on misting fans. Device actions are labeled under More options, and an empty account gets an Add a Device button.
