@@ -32,15 +32,12 @@ struct WindbarApp: App {
 
         guard !Self.isHostingTests else { return }
 
-        #if WINDBAR_DIRECT
-        // Before anything reads UserDefaults. The direct-download build is
-        // unsandboxed so its updater can replace the app, which also moves
-        // where macOS keeps its preferences, so the previous sandboxed
-        // install's settings have to be carried across first. Reading
-        // defaults ahead of this would see an empty store and treat a
-        // long-time user as a fresh install.
+        // Before anything reads UserDefaults. The app is unsandboxed so its
+        // updater can replace it, which also moves where macOS keeps its
+        // preferences, so an earlier sandboxed install's settings have to be
+        // carried across first. Reading defaults ahead of this would see an
+        // empty store and treat a long-time user as a fresh install.
         SandboxMigration.run()
-        #endif
 
         Task { await model.start() }
     }

@@ -1,0 +1,5 @@
+self-hosted-runner:
+  # GitHub's hosted macOS 27 image, the one that ships Xcode 27. actionlint
+  # does not know the label yet.
+  labels:
+    - xcode-27

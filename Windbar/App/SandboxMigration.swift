@@ -3,35 +3,31 @@ import os
 
 /// Carries settings out of the old sandbox container on first unsandboxed launch.
 ///
-/// The direct-download build drops the App Store sandbox, because a
-/// sandboxed app is not allowed to replace itself in /Applications and the
-/// updater therefore cannot work at all. Dropping it moves where macOS keeps
+/// Windbar is unsandboxed, because a sandboxed app is not allowed to replace
+/// itself in /Applications and the updater therefore cannot work at all. Dropping it moves where macOS keeps
 /// the app's preferences: a sandboxed app reads
 /// `~/Library/Containers/<bundle id>/Data/Library/Preferences/<bundle id>.plist`,
 /// an unsandboxed one reads `~/Library/Preferences/<bundle id>.plist`. Same
 /// app, same bundle id, different file.
 ///
-/// Without this, updating to the first unsandboxed build looks exactly like a
+/// Without this, updating from an older sandboxed build looks exactly like a
 /// fresh install: presets gone along with the keyboard shortcuts bound to
 /// them, the last-used fan forgotten, the first-run wizard back, and every
 /// donation forgotten, so someone who has already paid starts being asked
 /// again. That last one is the reason this runs before anything reads
 /// defaults.
 ///
-/// Compiled only into the direct-download build. The App Store build keeps
-/// its sandbox and its container, and must never touch either path.
-///
 /// What this deliberately does NOT carry across is the Dreo password. That
 /// lives in the login Keychain rather than in preferences, and a Keychain
-/// item's ACL is tied to the signature of the app that created it. The two
-/// builds are signed with different certificates, so macOS treats them as
-/// different applications: moving between them produces a "Windbar wants to
+/// item's ACL is tied to the signature of the app that created it. The old
+/// sandboxed build was signed with a different certificate, so macOS treats it
+/// as a different application: reading its item produces a "Windbar wants to
 /// use your confidential information" prompt, or the item simply is not
 /// offered at all.
 ///
 /// Left alone on purpose. Sharing it means either a shared Keychain access
-/// group, which widens access to a real password for everyone including App
-/// Store users, or asking for the login Keychain password to copy it.
+/// group, which widens access to a real password, or asking for the login
+/// Keychain password to copy it.
 /// Signing in to Dreo once is the smaller ask, and `loadCredentials` already
 /// returns nil and lands on the login screen, so the worst case is a login
 /// prompt rather than anything broken. Worth a line in the release notes.
@@ -76,8 +72,8 @@ enum SandboxMigration {
 
         let url = containerPreferencesURL(bundleIdentifier: bundleIdentifier)
         guard fileManager.fileExists(atPath: url.path) else {
-            // No container: a genuinely fresh install, or an App Store user
-            // who never had one. Mark it done so this never runs again.
+            // No container: a genuinely fresh install, or someone who
+            // never ran the sandboxed build. Mark it done so this never runs again.
             defaults.set(true, forKey: completionKey)
             return 0
         }

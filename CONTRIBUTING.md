@@ -25,11 +25,41 @@ stale after a pull, run `xcodegen generate` again.
 | Build | `xcodebuild build -project Windbar.xcodeproj -scheme Windbar -configuration Debug` |
 | Test | `xcodebuild test -project Windbar.xcodeproj -scheme Windbar -configuration Debug` |
 | One test class | `xcodebuild test -project Windbar.xcodeproj -scheme Windbar -only-testing WindbarTests/AppModelTests` |
-| Lint | `swiftlint lint Windbar WindbarTestsTests` |
+| Lint | `swiftlint lint --quiet` |
 | Build and relaunch | `scripts/demo.sh` |
 
 Check Release as well as Debug before shipping. Whole-module optimisation surfaces warnings Debug
 hides, and it has caught real problems here more than once.
+
+## Releasing
+
+Windbar ships as a notarized DMG on GitHub Releases, and installed copies update themselves from the
+`appcast.xml` attached to the newest release. Releasing is a merge, not a command:
+
+1. Bump `MARKETING_VERSION` in `project.yml`.
+2. Add `docs/release-notes/<version>.md`. Its text becomes the release description.
+3. Open a PR and merge it.
+
+On the push to `main`, `.github/workflows/release.yml` sees the version moved and the `v<version>`
+tag missing, runs `fastlane mac release_dmg` (build, sign with Developer ID, notarize, staple, make
+the DMG, sign the appcast), then creates the GitHub release with `Windbar-<version>.dmg` and
+`appcast.xml`. A merge that leaves the version alone releases nothing. To rebuild a version that
+already has a tag, run the Release workflow by hand from `main`; it replaces the assets in place.
+
+Never change `SU_PUBLIC_ED_KEY` in `project.yml`. Every installed copy verifies updates against it,
+so changing it strands all of them.
+
+The release workflow needs six repository secrets (Settings > Secrets and variables > Actions).
+They are only ever given to the Release workflow, never to pull requests:
+
+| Secret | What it is |
+|---|---|
+| `DEVELOPER_ID_P12_BASE64` | Developer ID Application certificate and key, `base64 -i cert.p12` |
+| `DEVELOPER_ID_P12_PASSWORD` | Password the `.p12` was exported with |
+| `ASC_KEY_ID` | App Store Connect API key id, used only for notarization |
+| `ASC_ISSUER_ID` | Issuer id of that key |
+| `ASC_KEY_P8` | Contents of the key's `.p8` file |
+| `SPARKLE_ED_PRIVATE_KEY` | Private half of the Sparkle update key, signs the appcast |
 
 ## Layout
 

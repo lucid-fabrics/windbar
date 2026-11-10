@@ -1,11 +1,11 @@
 import XCTest
 @testable import Windbar
 
-/// The direct-download build drops the sandbox so its updater can replace the
-/// app, and that moves the preferences file. Without the import, updating
-/// looks exactly like a fresh install: presets gone with the shortcuts bound
-/// to them, the first-run wizard back, and every donation forgotten, so
-/// someone who already paid starts being asked again.
+/// Windbar is unsandboxed so its updater can replace the app, and that moves
+/// the preferences file. Without the import, updating looks exactly like a
+/// fresh install: presets gone with the shortcuts bound to them, the
+/// first-run wizard back, and every donation forgotten, so someone who
+/// already paid starts being asked again.
 final class SandboxMigrationTests: XCTestCase {
     private var scratch: URL!
 

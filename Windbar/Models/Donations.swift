@@ -2,13 +2,13 @@
 import Foundation
 import Observation
 
-/// Donation prompt for the direct-download build only.
+/// Donation prompt.
 ///
-/// This whole file compiles to nothing in the App Store build. `WINDBAR_DONATIONS`
-/// is set only by `fastlane mac release_dmg`, never by `release`. That is not
-/// tidiness: App Review guideline 3.1.1 forbids pointing users at a payment
-/// mechanism outside the App Store, so the shipped App Store binary must not
-/// contain this code at all, not merely hide it behind a flag at runtime.
+/// This whole file sits behind `WINDBAR_DONATIONS`, which project.yml defines
+/// for the app and test targets in every configuration. Keeping it a
+/// compilation condition rather than a runtime flag means a build that leaves
+/// the condition out contains no donation code at all, and it keeps the tests
+/// able to compile the gate in.
 ///
 /// THE TIMING RULES, AND WHY
 ///
@@ -188,7 +188,7 @@ struct DonationState: Codable, Equatable, Sendable {
 /// Owns the counters and decides, once per popover, whether to show the ask.
 ///
 /// Storage is UserDefaults rather than `AppSettings` so that nothing about
-/// donations exists in the types the App Store build compiles.
+/// donations exists in the shared settings types.
 @MainActor
 @Observable
 final class DonationCoordinator {
@@ -282,9 +282,9 @@ final class DonationCoordinator {
     // or wait a fortnight to see their own copy. These skip the gate without
     // touching it, so a preview never consumes one of the three real asks.
     //
-    // Double-gated: `#if DEBUG` keeps it out of both shipping builds, and the
-    // enclosing `#if WINDBAR_DONATIONS` keeps it out of the App Store one
-    // twice over.
+    // Double-gated: `#if DEBUG` keeps it out of the shipping build, and the
+    // enclosing `#if WINDBAR_DONATIONS` keeps it out of any build that leaves
+    // donations out.
 
     /// Shows the ask the user would earn next, without spending it.
     func debugShowAsk() {

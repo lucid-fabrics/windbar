@@ -6,25 +6,21 @@ build/
 *.xcodeproj
 .swiftpm/
 *.p12
+*.p8
 *.mobileprovision
 
 # fastlane generates these on every run
 fastlane/report.xml
 fastlane/Preview.html
-fastlane/screenshots/**/*.png.tmp
 fastlane/test_output/
 
 # Scratch output from local browser-automation tooling. Never part of a build.
 .playwright-mcp/
 .hermes-chrome-screenshots/
 
-# App Review contact + demo Dreo account. Written by CI from secrets at
-# deliver time and never committed: this repo is public.
-fastlane/metadata/review_information/
-
-# Local-only fastlane secrets (App Review contact, MATCH_GIT_URL). Fastlane loads
+# Local-only fastlane secrets (signing identity, notary key). Fastlane loads
 # these automatically; they must never reach the public repo. CI reads the same
-# values from Gitea Actions secrets instead, not from this file.
+# values from GitHub repository secrets instead, not from this file.
 fastlane/.env
 fastlane/.env.*
 !fastlane/.env.example

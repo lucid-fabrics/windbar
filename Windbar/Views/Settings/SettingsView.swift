@@ -75,14 +75,10 @@ struct SettingsView: View {
     }
 
     #if DEBUG && WINDBAR_DONATIONS
-    /// Local preview of the direct-download build's donation card.
+    /// Local preview of the donation card.
     ///
-    /// Present only in a Debug build of the direct-download configuration, so
-    /// it cannot reach either shipping BINARY: both `release` and `release_dmg`
-    /// build Release, and `release` additionally proves no donation code is in
-    /// the archive before uploading. Store screenshots are a separate risk
-    /// with its own separate guard: see the comment on the Debug config in
-    /// project.yml and the canary in ScreenshotHarness.swift.
+    /// Present only in a Debug build, so it cannot reach the shipping binary,
+    /// which `release_dmg` builds in Release.
     ///
     /// Reaching the real card takes 14 days, 50 toggles and 7 separate days of
     /// use, which is correct for users and impossible to work against. These

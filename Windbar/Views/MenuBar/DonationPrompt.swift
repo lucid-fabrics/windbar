@@ -1,7 +1,7 @@
 #if WINDBAR_DONATIONS
 import SwiftUI
 
-/// The donation ask, direct-download build only. Absent from the App Store build.
+/// The donation ask.
 ///
 /// Deliberately quiet on TIMING: it sits inside the popover the user already
 /// opened rather than stealing focus with a window, it never blocks a control,
