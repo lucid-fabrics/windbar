@@ -1,6 +1,6 @@
 # Windbar Privacy Policy
 
-Last updated: 30 July 2026
+Last updated: 9 November 2026
 
 Windbar is a macOS menu bar app for controlling Dreo smart fans. This policy explains what it does
 with your information. The short version: Windbar collects nothing, and the developer never receives
@@ -21,9 +21,9 @@ no "us" to send it to: there is no Windbar server.
 | Your fan list and last-used fan | App preferences on your Mac | To draw the menu and support the global hotkey |
 | Your chosen keyboard shortcuts | App preferences on your Mac | To trigger fans from the keyboard |
 
-All of it stays on your Mac. Windbar is sandboxed by macOS, so it can only read and write its own
-container and its own Keychain items. Deleting the app removes its preferences; its Keychain entries
-can be removed with Keychain Access.
+All of it stays on your Mac, in Windbar's own preferences and its own Keychain items. Deleting the
+app does not remove them automatically: delete its preferences file, and remove its Keychain
+entries with Keychain Access.
 
 ## What is sent to Dreo
 
@@ -34,6 +34,10 @@ Windbar is a client for Dreo's own service, so using it necessarily means talkin
 - **Controlling a fan.** Commands (power, speed, oscillation, mode) travel to Dreo's servers over an
   encrypted WebSocket, and Dreo relays them to the fan. Even when the fan is in the same room, the
   round trip goes through Dreo. That is how the hardware works and Windbar cannot change it.
+- **Checking for updates.** Windbar asks GitHub for the release feed
+  (`releases/latest/download/appcast.xml` in this repository) to learn whether a newer version
+  exists. Nothing about you or your fans is included in that request beyond what any web request
+  carries, such as your IP address.
 - **Setting up a new fan.** Your WiFi network name and password are sent directly to the fan over
   Bluetooth, not over the internet, and are not stored by Windbar afterwards.
 

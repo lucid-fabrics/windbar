@@ -48,19 +48,14 @@ It grew a bit from there.
 
 ## Getting it
 
-Needs macOS 14 or later. Two ways to get it, same app:
+Needs macOS 14 or later. Download the DMG from
+[Releases](https://github.com/lucid-fabrics/windbar/releases/latest), drag Windbar to Applications
+and open it. The download is signed and notarised, so it opens without Gatekeeper arguing, and it
+updates itself: "Check for Updates…" in the menu looks for a newer release on demand.
 
-| | Mac App Store | Download here |
-|---|---|---|
-| Updates | through the App Store | in-app, "Check for Updates…" |
-| Sandboxed | yes | no, the updater needs to replace the app |
-| Get it | listing not live yet | [Releases](https://github.com/lucid-fabrics/windbar/releases/latest) |
-
-The download is signed and notarised, so it opens without Gatekeeper arguing. Both builds share
-a bundle id and read the same settings, so moving from one to the other keeps your presets and
-keys. It does not carry your Dreo password across, because the Keychain ties a saved password to
-the certificate that saved it and the two builds are signed differently. You sign in once more,
-and that's the whole cost of switching.
+If you used an earlier sandboxed build, your presets and keys carry over. Your Dreo password does
+not, because the Keychain ties a saved password to the certificate that saved it. You sign in
+once more, and that's the whole cost.
 
 Windbar is an independent project. It is not made by, endorsed by, or affiliated with Dreo. It
 simply works with Dreo smart fans.
@@ -83,8 +78,7 @@ open Windbar.xcodeproj
 ```
 
 Press Cmd-R on the `Windbar` scheme. The fan icon appears in the menu bar and there's no Dock
-icon. `Windbar-Direct` is the other scheme, the one that builds the downloadable copy with the
-updater in it; you only need it when working on the updater itself.
+icon.
 
 Adding or removing a source file means running `xcodegen generate` again, since the project file
 is generated from `project.yml` and nothing is going to notice on your behalf.
@@ -213,15 +207,12 @@ Windbar/
 ```
 
 Swift 6 with strict concurrency on. `@MainActor @Observable` for app state, actors for anything
-doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 190 tests,
+doing I/O, protocols and hand-written fakes for tests rather than a mocking framework. 189 tests,
 none of which touch the network or the real Keychain.
 
-Two app targets are generated from `project.yml`, sharing one `sources` line so they can't drift
-apart on file membership. They differ in exactly two ways: the download build drops the sandbox
-and links [Sparkle](https://sparkle-project.org) for updates, and the App Store build does
-neither. That split exists because a Swift package dependency can be excluded from a target but
-not from a configuration, and an App Store binary carrying a self-updater is a rejection. Two
-targets is what makes the store build provably free of it rather than merely not calling it.
+The app is one target generated from `project.yml`. It is unsandboxed and links
+[Sparkle](https://sparkle-project.org) for updates, because a sandboxed app is not allowed to
+replace itself in /Applications.
 
 The CBOR encoder is about 250 lines and hand-rolled, because pulling in a dependency to write
 maps and integers felt worse than writing it. One thing it does deliberately: **map keys keep
@@ -292,7 +283,6 @@ macro key itself.
 - A build you made yourself is signed with a development certificate, so Gatekeeper will complain
   about it on any Mac other than the one that built it. The releases here are notarised and don't
   have that problem
-- Moving between the App Store copy and the download makes you sign in to Dreo once more
 - Deleting a device really deletes it, from the account, everywhere. There's a confirmation, and
   Return picks Cancel on purpose
 
