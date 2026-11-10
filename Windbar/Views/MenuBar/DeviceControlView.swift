@@ -106,6 +106,7 @@ struct DeviceControlView: View {
                 ForEach(sections) { section in
                     sectionView(for: section)
                 }
+                timerControl()
                 preferencesSection
             }
             // Nothing sent to an unreachable device can take effect, so

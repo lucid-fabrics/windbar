@@ -125,6 +125,7 @@ struct DeviceHeaderView: View {
         }
         parts.append(Text(device.isOn ? runningSummary : "Off"))
         if device.isMisting && !device.isWaterTankEmpty { parts.append(Text("Misting")) }
+        if let timer = FanTimer.active(in: device.state) { parts.append(Text(timer.summary)) }
         if let reading = device.state["temperature"]?.intValue {
             parts.append(Text(temperatureUnit.format(fahrenheit: reading)))
         }

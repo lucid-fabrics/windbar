@@ -4,6 +4,15 @@ import os
 // MARK: - Command delivery
 
 extension AppModel {
+    /// Arms the fan's own countdown, or cancels it with 0 minutes.
+    ///
+    /// Sent as a batch rather than coalesced: picking a duration is one
+    /// deliberate click, and the stamp inside the value has to be the moment
+    /// of that click for the fan and the card to agree on when it ends.
+    func setTimer(_ kind: FanTimer.Kind, minutes: Int, on device: DreoDevice) {
+        send([FanTimer.command(kind, minutes: minutes)], to: device)
+    }
+
     /// The switch a control depends on, if its schema declares one.
     ///
     /// The fan accepts a light colour while the ring is off, answers that it

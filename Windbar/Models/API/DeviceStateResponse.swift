@@ -4,11 +4,12 @@ import Foundation
 /// `mixed` is either a raw scalar or `{"state": <value>, "timestamp": ...}`;
 /// `MixedStateEntry` normalizes both shapes to a single `DreoValue`.
 ///
-/// A few fields (`timeron`/`timeroff`) carry a nested object as their state
-/// (e.g. `{"du": 0, "ts": ...}`) that `DreoValue` can't represent. Decoding
-/// `mixed` key-by-key with `try?` skips just those fields instead of
-/// aborting the whole dictionary, which previously left `device.state`
-/// completely empty whenever any single field had an unsupported shape.
+/// The countdown timers (`timeron`/`timeroff`) carry a nested object as
+/// their state (e.g. `{"du": 0, "ts": ...}`), which decodes as
+/// `DreoValue.object`. Decoding `mixed` key-by-key with `try?` still skips
+/// any field with a shape nothing can represent (an array, say) instead of
+/// aborting the whole dictionary, which once left `device.state` completely
+/// empty whenever a single field was unexpected.
 struct DeviceStateData: Decodable {
     let flattened: [String: DreoValue]
 

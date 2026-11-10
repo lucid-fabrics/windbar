@@ -232,7 +232,8 @@
       "hoscon": "Bool, horizontal oscillation. Reported as false in the device report; hass-dreo sends it for evaporative coolers.",
       "miston": "Bool, the misting pump. Reported as true in the device report; hass-dreo exposes it as the Misting switch.",
       "foglevel": "Mist strength. hass-dreo declares a 1-4 range for this model; the device report shows 1.",
-      "not-yet": "rhmode (0 or 2), rhtarget and rhsuspend drive the auto-humidity target. Left out until the owner confirms what the fan does with them."
+      "rhtarget": "Target humidity in percent, a bare int. Added at the owner's request on issue #3. hass-dreo sends it alone, with no companion key, and its number entity bounds it 40-90; the device report shows 55.",
+      "not-yet": "rhmode (hass-dreo maps 0 off, 2 on) and rhsuspend (read-only) stay out until someone confirms what they do on this fan. The mood light (rgb*) stays out too: the owner does not use it."
     },
     "control": [
       {
@@ -288,6 +289,20 @@
           }
         ],
         "requires": "miston"
+      },
+      {
+        "id": "160",
+        "type": "Range",
+        "title": "Target Humidity",
+        "items": [
+          {
+            "cmd": "rhtarget",
+            "text": "Target Humidity",
+            "type": "humidity",
+            "minValue": 40,
+            "maxValue": 90
+          }
+        ]
       }
     ],
     "preference": []

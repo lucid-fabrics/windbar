@@ -87,8 +87,15 @@ struct ControlItem: Codable, Equatable, Identifiable, Sendable {
         switch itemType {
         case "light": return "Brightness"
         case "color": return "Color Temperature"
+        case "humidity": return "Target Humidity"
         default: return cmd.dreoTitleCased
         }
+    }
+
+    /// Suffix for the slider's readout, so a humidity target reads "55%"
+    /// rather than a bare number that could be anything.
+    var rangeUnit: String {
+        itemType == "humidity" ? "%" : ""
     }
 
     enum CodingKeys: String, CodingKey {
