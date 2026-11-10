@@ -1,3 +1,0 @@
-TurboCool Misting Fan 765S: set a Target Humidity from 40 to 90% right from its card.
-
-New timer: tell a running fan to turn off after 30 minutes to 8 hours, or a stopped one to turn on later. The fan keeps the time itself, so it works with your Mac asleep. Shown on fans that report Dreo's timer.

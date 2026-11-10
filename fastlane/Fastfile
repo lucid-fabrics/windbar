@@ -1,101 +1,37 @@
 # Windbar - macOS release automation.
 #
-# Distribution is the Mac App Store, so signing uses the Apple Distribution
-# certificate plus a Mac App Store provisioning profile. There is deliberately no
-# Developer ID certificate and no notarization: Developer ID can only be created by
-# the Apple account holder through the web portal, and the App Store path does not
-# need it.
+# The only product is a Developer ID signed, notarized DMG that updates itself
+# through Sparkle, published as a GitHub release. Everything here runs on a
+# GitHub-hosted runner, which starts every job with an empty machine, so there
+# is nothing to unlock: `release_dmg` builds a throwaway keychain from secrets,
+# signs with it and deletes it again in an `ensure`, whatever happens.
 #
-# SIGNING MODEL (deliberately unlike the other apps sharing this builder)
+# Secrets, all read from the environment and never written to disk except for
+# the notary key, which is removed in an `ensure` too:
 #
-# The sibling pipelines use fastlane match, which clones an encrypted certs repo
-# every run and rebuilds a keychain. That machinery exists because their runner is
-# shared and their certs rotate. Windbar does not need it: the CI Mac already
-# holds both identities in PERSISTENT keychains, so a run only has to UNLOCK them.
-#
-#   ci-signing.keychain-db          Apple Distribution         (shared, another app owns it)
-#   windbar-signing.keychain-db     3rd Party Mac Developer Installer  (ours)
-#
-# Both are already on the user keychain search list. This avoids `security import`
-# and `security set-key-partition-list` at build time entirely, which matters because
-# on macOS 26 the security daemon asynchronously SIGKILLs any process that calls
-# set-key-partition-list.
-#
-# It also means we never run match's certificate prune, which revokes older
-# Distribution certs and would break every other app sharing this Apple team.
+#   DEVELOPER_ID_P12_BASE64     Developer ID Application identity, base64 of the .p12
+#   DEVELOPER_ID_P12_PASSWORD   password that .p12 was exported with
+#   ASC_KEY_ID                  notary API key id (an App Store Connect key, used only to notarize)
+#   ASC_ISSUER_ID               issuer id of that key
+#   ASC_KEY_P8                  the contents of the .p8 file
+#   SPARKLE_ED_PRIVATE_KEY      signs the appcast
+
+require 'base64'
+require 'securerandom'
+require 'tmpdir'
 
 default_platform(:mac)
 
-APP_IDENTIFIER   = 'com.lucidfabrics.windbar'
-TEAM_ID          = 'KRPUAN3FFA'
-SCHEME           = 'Windbar'
-# The GitHub download builds a different target, because Sparkle can be kept
-# out of a target but not out of a configuration. See project.yml.
-DIRECT_SCHEME    = 'Windbar-Direct'
-PROJECT          = 'Windbar.xcodeproj'
-PROFILE_NAME     = 'Windbar MAS'
-
-# Unlock passwords come from the environment, never from this file. It is
-# published to github.com/lucid-fabrics/windbar, so a literal here is a
-# password on the open internet - which it was until 2026-07-30.
-KEYCHAINS = {
-  "#{ENV['HOME']}/gitea-runner/ci-signing.keychain-db"      => 'SIGNING_KEYCHAIN_PASSWORD_SHARED',
-  "#{ENV['HOME']}/gitea-runner/windbar-signing.keychain-db" => 'SIGNING_KEYCHAIN_PASSWORD_WINDBAR',
-}.freeze
-
-# App Review wants a contact human and a working demo Dreo account. That is a real
-# name, a real phone number and a LIVE PASSWORD - and this repository is published
-# to github.com/lucid-fabrics/windbar on every green CD run.
-#
-# So none of it is committed. CI writes fastlane/metadata/review_information/ from
-# secrets moments before deliver reads it, and that directory is gitignored. Do not
-# "just add the files", they would ship a password to the public internet.
-REVIEW_INFORMATION_SECRETS = {
-  'ASC_REVIEW_FIRST_NAME'     => 'first_name.txt',
-  'ASC_REVIEW_LAST_NAME'      => 'last_name.txt',
-  'ASC_REVIEW_EMAIL'          => 'email_address.txt',
-  'ASC_REVIEW_PHONE'          => 'phone_number.txt',
-  'ASC_REVIEW_DEMO_USER'      => 'demo_user.txt',
-  'ASC_REVIEW_DEMO_PASSWORD'  => 'demo_password.txt',
-}.freeze
-
-# Materialise that directory, or remove it. Returns whether deliver should push it.
-#
-# All six or nothing: a half-filled review_information is worse than none, because
-# deliver sends the partial set and Apple rejects the submission for a missing
-# contact phone. The reviewer notes are not secret and stay in git.
-def write_review_information
-  dir     = File.expand_path('metadata/review_information', __dir__)
-  present = REVIEW_INFORMATION_SECRETS.select { |key, _| ENV[key].to_s.strip != '' }
-
-  if present.size < REVIEW_INFORMATION_SECRETS.size
-    FileUtils.rm_rf(dir)
-    missing = REVIEW_INFORMATION_SECRETS.size - present.size
-    UI.important "Review contact not set (#{missing} of 6 secrets missing), " \
-                 'leaving the App Store Connect values untouched'
-    return false
-  end
-
-  FileUtils.mkdir_p(dir)
-  # 0600, and never logged: deliver echoes file CONTENTS at higher verbosity.
-  present.each do |key, filename|
-    path = File.join(dir, filename)
-    File.write(path, ENV[key].to_s.strip)
-    File.chmod(0o600, path)
-  end
-  notes = File.expand_path('review_notes.txt', __dir__)
-  FileUtils.cp(notes, File.join(dir, 'notes.txt')) if File.exist?(notes)
-  UI.success 'Review contact and demo account written from secrets'
-  true
-end
+TEAM_ID = 'KRPUAN3FFA'
+SCHEME  = 'Windbar'
+PROJECT = 'Windbar.xcodeproj'
 
 # Is the donation code actually inside this .app?
 #
-# `#if WINDBAR_DONATIONS` fails silently in BOTH directions, and both are shipping
-# bugs: a DMG with no way to donate, or an App Store binary carrying an external
-# payment link, which is a guideline 3.1.1 rejection. Worse, the code compiles to
-# nothing the moment no view references it, so "the flag is set" proves nothing.
-# Grep the built binary instead of trusting the build setting.
+# `#if WINDBAR_DONATIONS` fails silently: the code compiles to nothing the
+# moment no view references it, so "the flag is set" proves nothing, and the
+# result would be a DMG with no way to donate. Grep the built binary instead of
+# trusting the build setting.
 #
 # The needle is one payment link's own path segment, not the shared
 # "buy.stripe.com" host string. Swift stores a string literal of 15 UTF-8
@@ -108,14 +44,7 @@ end
 # link breaking too.
 DONATION_LINK_NEEDLE = 'dRmfZg2K7aTOcD0dMMgYU00'
 
-# Is the updater inside this .app?
-#
-# Apple rejects apps that update themselves, so Sparkle must be absent from
-# the App Store build and present in the GitHub one. Both halves are checked,
-# because each failure is silent in its own way: a store build carrying it is
-# a rejection, and a GitHub build missing it ships an app that can never
-# update and never says so.
-#
+
 # Re-sign the executables Sparkle nests inside its own framework.
 #
 # Xcode signs Sparkle.framework, and stops there. The four helpers living
@@ -168,7 +97,7 @@ def resign_sparkle_helpers!(app)
     UI.message("re-signing #{target.sub("#{app}/", '')}")
     sh("#{sign} #{target.shellescape}")
   end
-  entitlements = File.expand_path('../config/Windbar-Direct.entitlements', __dir__)
+  entitlements = File.expand_path('../config/Windbar.entitlements', __dir__)
   UI.user_error!("No entitlements at #{entitlements}") unless File.exist?(entitlements)
   sh("#{sign} --entitlements #{entitlements.shellescape} #{app.shellescape}")
 end
@@ -235,8 +164,8 @@ def donation_code_present?(app)
 
   # Xcode 16 splits a Debug BUILD's code into a companion .debug.dylib next to
   # a thin launcher stub, so grepping the stub alone reports "absent" for a
-  # bundle that plainly contains the code. An xcodebuild ARCHIVE (what both
-  # callers below pass here) merges the dylib back into one executable and
+  # bundle that plainly contains the code. An xcodebuild ARCHIVE (what release_dmg
+  # passes here) merges the dylib back into one executable and
   # never has this file, so its presence means this helper was pointed at
   # something other than an archive and cannot judge it either way.
   dylib = File.join(app, 'Contents/MacOS/Windbar.debug.dylib')
@@ -249,360 +178,200 @@ def donation_code_present?(app)
   File.binread(binary).include?(DONATION_LINK_NEEDLE)
 end
 
-platform :mac do
-  # ── helpers ────────────────────────────────────────────────────────────────
+# Runs the block with a Developer ID Application identity available, and
+# guarantees it is gone afterwards.
+#
+# A GitHub-hosted runner is a fresh VM, so there is no keychain to unlock:
+# a new one is created, the certificate imported, and the keychain put on the
+# search list so codesign and xcodebuild can find the identity by name. The
+# partition list is what lets codesign use the private key without a UI
+# prompt, which nothing on a headless runner could answer.
+#
+# The keychain password is random per run and never leaves this process. The
+# original search list is restored and the keychain deleted in an `ensure`,
+# so a failed notarization does not leave a signing identity behind on a
+# machine that might be reused (a self-hosted runner, or a local dry run).
+def with_temporary_signing_keychain
+  p12_base64 = ENV['DEVELOPER_ID_P12_BASE64'].to_s.strip
+  p12_password = ENV['DEVELOPER_ID_P12_PASSWORD'].to_s
+  UI.user_error!('DEVELOPER_ID_P12_BASE64 is not set, so there is no identity to sign with.') if p12_base64.empty?
+  UI.user_error!('DEVELOPER_ID_P12_PASSWORD is not set.') if p12_password.empty?
 
+  dir = Dir.mktmpdir('windbar-signing')
+  keychain = File.join(dir, 'windbar-signing.keychain-db')
+  p12 = File.join(dir, 'developer-id.p12')
+  password = SecureRandom.hex(24)
+  original = `security list-keychains -d user`.scan(/"([^"]+)"/).flatten
+
+  begin
+    sh("security create-keychain -p #{password.shellescape} #{keychain.shellescape}", log: false)
+    # No auto-lock: notarization can keep a job busy for a long time, and a
+    # keychain that re-locks mid-run fails the signing step with no clear error.
+    sh("security set-keychain-settings #{keychain.shellescape}", log: false)
+    sh("security unlock-keychain -p #{password.shellescape} #{keychain.shellescape}", log: false)
+
+    File.binwrite(p12, Base64.decode64(p12_base64))
+    sh("security import #{p12.shellescape} -k #{keychain.shellescape} -P #{p12_password.shellescape} " \
+       '-T /usr/bin/codesign -T /usr/bin/security', log: false)
+    sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k #{password.shellescape} " \
+       "#{keychain.shellescape}", log: false)
+    sh("security list-keychains -d user -s #{keychain.shellescape} #{original.map(&:shellescape).join(' ')}",
+       log: false)
+
+    identities = sh("security find-identity -v -p codesigning #{keychain.shellescape}", log: false)
+    unless identities.include?('Developer ID Application')
+      UI.user_error!('The imported certificate is not a Developer ID Application identity.')
+    end
+    yield
+  ensure
+    sh("security list-keychains -d user -s #{original.map(&:shellescape).join(' ')}", log: false) unless original.empty?
+    sh("security delete-keychain #{keychain.shellescape}", log: false, error_callback: ->(_) {}) if File.exist?(keychain)
+    FileUtils.rm_rf(dir)
+  end
+end
+
+platform :mac do
   # The .xcodeproj is generated, never committed, so every lane regenerates it.
   private_lane :generate_project do
-    xcodegen = [
-      "#{ENV['HOME']}/.local/xcodegen/bin/xcodegen",
-      "#{ENV['HOME']}/.local/bin/xcodegen",
-      'xcodegen',
-    ].find { |p| system("command -v #{p.shellescape} >/dev/null 2>&1") }
+    UI.user_error!('xcodegen is not installed. brew install xcodegen') unless
+      system('command -v xcodegen >/dev/null 2>&1')
 
-    unless xcodegen
-      # ~/.local/bin is root-owned on the CI Mac, so install into ~/.local, which is not.
-      UI.message 'XcodeGen missing, installing into ~/.local'
-      sh("set -e; mkdir -p /tmp/xg && cd /tmp/xg && " \
-         "curl -sSL -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip && " \
-         "unzip -oq xcodegen.zip && rm -rf $HOME/.local/xcodegen && mv xcodegen $HOME/.local/xcodegen")
-      xcodegen = "#{ENV['HOME']}/.local/xcodegen/bin/xcodegen"
-    end
-
-    sh("cd #{File.expand_path('..', __dir__).shellescape} && #{xcodegen.shellescape} generate")
-  end
-
-  # Unlock, do not import. See the signing model note at the top of this file.
-  private_lane :unlock_signing_keychains do
-    KEYCHAINS.each do |path, env_var|
-      UI.user_error!("Signing keychain missing: #{path}. Reprovision the CI Mac.") unless File.exist?(path)
-      pass = ENV[env_var].to_s
-      UI.user_error!("#{env_var} is not set. It is a Gitea secret, see the Gitea wiki runbook.") if pass.empty?
-      # log: false, or the password lands in the job output.
-      sh("security unlock-keychain -p #{pass.shellescape} #{path.shellescape}", log: false)
-    end
-    identities = sh('security find-identity -v', log: false)
-    UI.user_error!('Apple Distribution identity not found') unless identities.include?('Apple Distribution')
-    UI.user_error!('Mac Installer identity not found')      unless identities.include?('3rd Party Mac Developer Installer')
-  end
-
-  private_lane :asc_api_key do
-    app_store_connect_api_key(
-      key_id:                ENV.fetch('APP_STORE_CONNECT_API_KEY_ID'),
-      issuer_id:             ENV.fetch('APP_STORE_CONNECT_API_ISSUER_ID'),
-      key_content:           ENV.fetch('APP_STORE_CONNECT_API_KEY_CONTENT'),
-      is_key_content_base64: false,
-      in_house:              false,
-    )
-  end
-
-  # ── public lanes ───────────────────────────────────────────────────────────
-
-  desc 'Rebuild the signing keychains on a fresh build machine. Recovery only, not CI.'
-  lane :restore_signing do
-    UI.important 'Rebuilding Windbar signing from match storage'
-    UI.message 'Needs MATCH_PASSWORD and MATCH_GIT_BASIC_AUTHORIZATION in the environment.'
-    %w[MATCH_PASSWORD MATCH_GIT_BASIC_AUTHORIZATION].each do |v|
-      UI.user_error!("#{v} is not set") if ENV[v].to_s.empty?
-    end
-
-    kc_path = "#{ENV['HOME']}/gitea-runner/windbar-signing.keychain-db"
-    kc_pass = ENV['SIGNING_KEYCHAIN_PASSWORD_WINDBAR'].to_s
-    UI.user_error!('SIGNING_KEYCHAIN_PASSWORD_WINDBAR is not set') if kc_pass.empty?
-    kc_name = 'windbar-signing.keychain'
-
-    unless File.exist?(kc_path)
-      FileUtils.mkdir_p(File.dirname(kc_path))
-      sh("security create-keychain -p #{kc_pass.shellescape} #{kc_path.shellescape}", log: false)
-      sh("security set-keychain-settings -lut 21600 #{kc_path.shellescape}")
-    end
-    sh("security unlock-keychain -p #{kc_pass.shellescape} #{kc_path.shellescape}", log: false)
-
-    # Reads the `windbar` orphan branch (see Matchfile). readonly so a recovery run
-    # can never mint a certificate and never revoke one belonging to another app.
-    match(
-      type:              'appstore',
-      platform:          'macos',
-      readonly:          true,
-      keychain_name:     kc_name,
-      keychain_password: kc_pass,
-    )
-
-    # Put it on the search list so codesign and productbuild can see it, without
-    # dropping whatever is already there (another app's keychain lives here too).
-    current = sh('security list-keychains -d user', log: false)
-              .split("\n").map { |s| s.strip.delete('"') }.reject(&:empty?)
-    unless current.any? { |k| k.include?('windbar-signing') }
-      sh("security list-keychains -d user -s #{current.map(&:shellescape).join(' ')} #{kc_path.shellescape}")
-    end
-
-    ids = sh('security find-identity -v', log: false)
-    UI.user_error!('Apple Distribution missing after restore') unless ids.include?('Apple Distribution')
-    UI.user_error!('Mac Installer missing after restore') unless ids.include?('3rd Party Mac Developer Installer')
-    UI.success('Signing restored. A release build should now work on this machine.')
+    sh("cd #{File.expand_path('..', __dir__).shellescape} && xcodegen generate")
   end
 
   desc 'PR gate: build and run the unit tests. No signing, no upload.'
   lane :build_check do
     generate_project
-    adhoc = 'CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" ' \
-            'PROVISIONING_PROFILE_SPECIFIER=""'
     run_tests(
       project:     PROJECT,
       scheme:      SCHEME,
       destination: 'platform=macOS',
-      # Ad-hoc signing keeps the gate independent of certificates and keychains,
-      # so a PR from anywhere can be tested.
-      xcargs: adhoc,
+      # Signing off, so the gate is independent of certificates and keychains
+      # and a PR from anywhere can be tested.
+      xcargs: 'CODE_SIGNING_ALLOWED=NO',
     )
-
-    # The GitHub target compiles too. Nothing else on a PR touches it: the
-    # tests run against the App Store target, and `release_dmg` only runs on
-    # a push to main. Without this, a compile break in the updater or in any
-    # `#if WINDBAR_DIRECT` code would stay invisible until the middle of a
-    # release, which is the worst possible moment to discover it.
-    # `set -o pipefail` and no `|| true`, unlike release_dmg: a compile break
-    # here has to fail the job rather than be discovered by a later check.
-    # xcbeautify is only for readability, so its absence must not fail a build
-    # that otherwise succeeded.
-    pretty = system('command -v xcbeautify > /dev/null') ? ' | xcbeautify' : ''
-    sh("set -o pipefail && xcodebuild build " \
-       "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
-       "-scheme #{DIRECT_SCHEME} -configuration Debug " \
-       "-destination 'platform=macOS' #{adhoc}#{pretty}")
-    UI.success("#{DIRECT_SCHEME} compiles")
   end
 
-  desc 'Build, sign and upload a build to App Store Connect. Does not submit for review.'
-  lane :release do
-    generate_project
-    unlock_signing_keychains
-
-    # ASC reports a stale "latest build" while a previous one is still processing,
-    # so the build number comes from the pipeline counter instead of from Apple.
-    build_number = ENV['CI_PIPELINE_NUMBER'] || Time.now.to_i.to_s
-    version      = File.read(File.expand_path('../project.yml', __dir__))[/MARKETING_VERSION:\s*"([^"]+)"/, 1]
-    UI.user_error!('Could not read MARKETING_VERSION from project.yml') if version.to_s.empty?
-    UI.important("Windbar #{version} (#{build_number})")
-
-    # Release-config signing lives in project.yml on the app target. Setting
-    # PROVISIONING_PROFILE_SPECIFIER here would also hit the SwiftPM targets, and
-    # KeyboardShortcuts fails with "does not support provisioning profiles".
-    build_mac_app(
-      project:       PROJECT,
-      scheme:        SCHEME,
-      configuration: 'Release',
-      export_method: 'app-store',
-      output_directory: 'build',
-      output_name:      'Windbar',
-      xcargs: "DEVELOPMENT_TEAM=#{TEAM_ID} " \
-              "MARKETING_VERSION=#{version} " \
-              "CURRENT_PROJECT_VERSION=#{build_number}",
-      export_options: {
-        method:                       'app-store-connect',
-        teamID:                       TEAM_ID,
-        signingStyle:                 'manual',
-        signingCertificate:           'Apple Distribution',
-        installerSigningCertificate:  '3rd Party Mac Developer Installer',
-        provisioningProfiles:         { APP_IDENTIFIER => PROFILE_NAME },
-        uploadSymbols:                true,
-      },
-    )
-
-    pkg = lane_context[SharedValues::PKG_OUTPUT_PATH] || 'build/Windbar.pkg'
-    UI.user_error!("No .pkg produced at #{pkg}") unless File.exist?(pkg)
-    UI.success("Signed installer: #{pkg}")
-
-    # The mirror image of the check in release_dmg. An App Store binary containing
-    # a Stripe link is a guideline 3.1.1 rejection, and the only thing keeping it
-    # out is one compiler flag being absent. Verify rather than assume.
-    #
-    # Fails closed: an unresolved archive path or a missing .app used to just
-    # skip the check silently and let the upload proceed unverified, which
-    # defeats the entire point of having it. A renamed PRODUCT_NAME, a
-    # relocated archive_path, or gym changing where it puts the archive would
-    # each have disabled the one thing standing between this lane and a
-    # rejection, with no line in the log saying so.
-    archive = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
-    UI.user_error!('No archive path in lane_context: cannot verify the App Store build is ' \
-                   'free of donation code before uploading.') unless archive
-    app = "#{archive}/Products/Applications/Windbar.app"
-    UI.user_error!("No app at #{app}") unless File.exist?(app)
-    if donation_code_present?(app)
-      UI.user_error!('Donation code is present in the App Store build. WINDBAR_DONATIONS must ' \
-                     'never be set for the `release` lane: guideline 3.1.1 forbids it.')
-    end
-
-    # Same proof, for the updater. This is what the two-target split in
-    # project.yml exists to guarantee, and guaranteeing it by construction is
-    # not the same as checking it: a stray `- package: Sparkle` on the wrong
-    # target would put it back with nothing else complaining.
-    if sparkle_present?(app)
-      UI.user_error!('Sparkle is present in the App Store build. Apple rejects apps that update ' \
-                     'themselves; the `release` lane must build the Windbar target, never ' \
-                     'WindbarDirect.')
-    end
-    UI.success('App Store build carries neither donation code nor an updater')
-
-    write_review_information
-
-    upload_to_app_store(
-      api_key:                        asc_api_key,
-      pkg:                            pkg,
-      app_identifier:                 APP_IDENTIFIER,
-      platform:                       'osx',
-      app_version:                    version,
-      # fastlane/metadata/ is the source of truth for the listing, so every merge
-      # to main pushes the text along with the build. Edits made by hand in App
-      # Store Connect WILL be overwritten: change the files, not the website.
-      skip_metadata:                  false,
-      # Rendered from the real UI with fixture devices by
-      # design/render_screenshots.sh, so they regenerate rather than rot.
-      skip_screenshots:               false,
-      skip_app_version_update:        false,
-      # Submission stays a human decision. A merge ships a build and its metadata;
-      # someone still has to press Submit.
-      submit_for_review:              false,
-      # No HTML preview / confirmation prompt: there is no one to answer it in CI.
-      force:                          true,
-      precheck_include_in_app_purchases: false,
-      run_precheck_before_submit:     false,
-    )
-
-    UI.success("Uploaded Windbar #{version} (#{build_number}) to App Store Connect")
-
-    # Uploading a build and SELECTING it for the version are two different things.
-    # Without this the version sits there with no build attached and cannot be
-    # submitted, with nothing in the upload output hinting at it.
-    attach_latest_build(version: version, build_number: build_number)
-  end
-
-  desc 'Build a Developer ID signed, notarized DMG for direct download. Not for the App Store.'
+  desc 'Build a Developer ID signed, notarized DMG and its Sparkle appcast.'
   lane :release_dmg do
     generate_project
-    unlock_signing_keychains
 
     version = File.read(File.expand_path('../project.yml', __dir__))[/MARKETING_VERSION:\s*"([^"]+)"/, 1]
     UI.user_error!('Could not read MARKETING_VERSION from project.yml') if version.to_s.empty?
-    build_number = ENV['CI_PIPELINE_NUMBER'] || Time.now.to_i.to_s
-
-    ids = sh('security find-identity -v', log: false)
-    UI.user_error!('Developer ID Application identity missing. Run restore_signing.') unless
-      ids.include?('Developer ID Application')
+    # Epoch seconds, never the CI run counter. Sparkle decides whether an
+    # update is newer by comparing this number first, so it has to keep
+    # growing across every release ever made. A run counter restarts whenever
+    # the CI system changes, and a release numbered below what is already
+    # installed is silently treated as older and never offered.
+    build_number = Time.now.to_i.to_s
 
     out = File.expand_path('../build/dmg', __dir__)
     FileUtils.rm_rf(out)
     FileUtils.mkdir_p(out)
     archive = "#{out}/Windbar.xcarchive"
-
-    # Developer ID, NOT the App Store identity, and deliberately no provisioning
-    # profile: outside the store there is nothing to provision. Overriding on the
-    # command line reaches every target, which is why the profile is blanked here
-    # rather than left at the "Windbar MAS" value project.yml sets for Release.
-    #
-    # A different TARGET, not the same one with overrides. Sparkle cannot be
-    # excluded from a configuration, only from a target, so a shared target
-    # embedded Sparkle.framework in the App Store archive and linked it from
-    # the main binary. Apple rejects apps carrying a self-updater, so
-    # WindbarDirect exists to make the store build provably free of it.
-    #
-    # Everything that used to be an override here now lives in that target's
-    # own definition in project.yml: the unsandboxed entitlements, both
-    # compilation flags, the Developer ID identity and the Sparkle keys. Only
-    # the version numbers still come from the command line.
-    sh("set -o pipefail && xcodebuild archive " \
-       "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
-       "-scheme #{DIRECT_SCHEME} -configuration Release " \
-       "-archivePath #{archive.shellescape} -destination 'generic/platform=macOS' " \
-       "DEVELOPMENT_TEAM=#{TEAM_ID} " \
-       "MARKETING_VERSION=#{version} CURRENT_PROJECT_VERSION=#{build_number} " \
-       "OTHER_CODE_SIGN_FLAGS='--timestamp' " \
-       "| xcbeautify || true")
-
-    app = "#{archive}/Products/Applications/Windbar.app"
-    UI.user_error!("No app at #{app}") unless File.exist?(app)
-    resign_sparkle_helpers!(app)
-    sh("codesign --verify --deep --strict --verbose=2 #{app.shellescape}")
-    signer = sh("codesign -dv --verbose=2 #{app.shellescape} 2>&1 | grep Authority | head -1", log: false)
-    UI.user_error!("App is not Developer ID signed: #{signer}") unless signer.include?('Developer ID Application')
-
-    # Verify the sandbox actually came off, rather than trusting the target
-    # definition. A sandboxed build would ship an updater that silently
-    # cannot install anything, and the only symptom users would ever see is
-    # that updates never apply. Read what is baked into the signature, which
-    # is the only thing that counts at runtime.
-    signed_entitlements = sh("codesign -d --entitlements - --xml #{app.shellescape} 2>/dev/null " \
-                             "| plutil -convert xml1 -o - -", log: false)
-    if signed_entitlements.include?('com.apple.security.app-sandbox')
-      UI.user_error!('The direct-download build is sandboxed. Its updater cannot replace the app ' \
-                     'from inside a sandbox, so the WindbarDirect entitlements did not take effect.')
-    end
-
-    # And that the capabilities are still there. Re-signing the app to seal the
-    # Sparkle helpers hands codesign an entitlements file, so a wrong or empty
-    # one would quietly produce an app that launches, looks fine, and cannot
-    # reach the network or talk to a fan over Bluetooth. Both are read back out
-    # of the signature rather than assumed from the file on disk.
-    %w[com.apple.security.network.client com.apple.security.device.bluetooth].each do |capability|
-      next if signed_entitlements.include?(capability)
-
-      UI.user_error!("#{capability} is missing from the signed app. Re-signing dropped it, so this " \
-                     'build could not reach Dreo or pair a fan. Check config/Windbar-Direct.entitlements.')
-    end
-
-    unless sparkle_present?(app)
-      UI.user_error!('Sparkle is missing from the DMG build. This lane must build the ' \
-                     'WindbarDirect target, whose whole purpose is carrying the updater.')
-    end
-
-    # An empty SUPublicEDKey makes Sparkle refuse every update. That is the
-    # safe failure rather than the dangerous one, but it means shipping an app
-    # whose updater can never do anything, so catch it at build time instead
-    # of discovering it when a release fails to reach anybody.
-    key = sh("/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' " \
-             "#{app.shellescape}/Contents/Info.plist 2>/dev/null || true", log: false).strip
-    UI.user_error!('SUPublicEDKey is empty in the DMG build. Sparkle would reject every update ' \
-                   'it is ever offered. Set SU_PUBLIC_ED_KEY on the WindbarDirect target.') if key.empty?
-
-    unless donation_code_present?(app)
-      UI.user_error!('Donation code is missing from the DMG build. WINDBAR_DONATIONS is set, so ' \
-                     'the compiler stripped it: nothing in the UI references DonationCoordinator.')
-    end
-    UI.success("Direct build: unsandboxed, Sparkle present, update key #{key[0, 8]}…")
-
     api_key_path = "#{out}/asc.p8"
-    File.write(api_key_path, ENV.fetch('APP_STORE_CONNECT_API_KEY_CONTENT'))
-    notary = "--key #{api_key_path.shellescape} " \
-             "--key-id #{ENV.fetch('APP_STORE_CONNECT_API_KEY_ID').shellescape} " \
-             "--issuer #{ENV.fetch('APP_STORE_CONNECT_API_ISSUER_ID').shellescape}"
+
+    # xcbeautify is only for readability, so its absence must not break the
+    # archive. A failed archive is caught by the missing-app check below.
+    pretty = system('command -v xcbeautify > /dev/null') ? ' | xcbeautify' : ''
 
     begin
-      # Notarize and staple the app FIRST. Stapling only the disk image leaves the
-      # copy the user drags to /Applications without a ticket, so its first launch
-      # needs network. Doing the app too makes it work offline.
-      UI.important 'Notarizing the app'
-      sh("ditto -c -k --keepParent #{app.shellescape} #{out.shellescape}/Windbar.zip")
-      notarize!("#{out}/Windbar.zip", notary)
-      sh("xcrun stapler staple #{app.shellescape}")
+      with_temporary_signing_keychain do
+        # The identity, entitlements, compilation conditions and Sparkle keys
+        # all live in the target's own definition in project.yml. Only the team
+        # and the version numbers come from the command line.
+        sh("set -o pipefail && xcodebuild archive " \
+           "-project #{File.expand_path('../' + PROJECT, __dir__).shellescape} " \
+           "-scheme #{SCHEME} -configuration Release " \
+           "-archivePath #{archive.shellescape} -destination 'generic/platform=macOS' " \
+           "DEVELOPMENT_TEAM=#{TEAM_ID} " \
+           "MARKETING_VERSION=#{version} CURRENT_PROJECT_VERSION=#{build_number} " \
+           "OTHER_CODE_SIGN_FLAGS='--timestamp'#{pretty} || true")
 
-      dmg = "#{out}/Windbar-#{version}.dmg"
-      stage = "#{out}/stage"
-      FileUtils.mkdir_p(stage)
-      FileUtils.cp_r(app, stage)
-      File.symlink('/Applications', "#{stage}/Applications")
-      sh("hdiutil create -volname Windbar -srcfolder #{stage.shellescape} -ov -format UDZO #{dmg.shellescape}")
-      sh("codesign --sign 'Developer ID Application' --timestamp #{dmg.shellescape}")
+        app = "#{archive}/Products/Applications/Windbar.app"
+        UI.user_error!("No app at #{app}") unless File.exist?(app)
+        resign_sparkle_helpers!(app)
+        sh("codesign --verify --deep --strict --verbose=2 #{app.shellescape}")
+        signer = sh("codesign -dv --verbose=2 #{app.shellescape} 2>&1 | grep Authority | head -1", log: false)
+        UI.user_error!("App is not Developer ID signed: #{signer}") unless signer.include?('Developer ID Application')
 
-      UI.important 'Notarizing the disk image'
-      notarize!(dmg, notary)
-      sh("xcrun stapler staple #{dmg.shellescape}")
-      sh("xcrun stapler validate #{dmg.shellescape}")
-      # The real test: would Gatekeeper let a downloader open this?
-      sh("spctl -a -vvv -t install #{dmg.shellescape}")
+        # Verify the sandbox actually came off, rather than trusting the target
+        # definition. A sandboxed build would ship an updater that silently
+        # cannot install anything, and the only symptom users would ever see is
+        # that updates never apply. Read what is baked into the signature, which
+        # is the only thing that counts at runtime.
+        signed_entitlements = sh("codesign -d --entitlements - --xml #{app.shellescape} 2>/dev/null " \
+                                 "| plutil -convert xml1 -o - -", log: false)
+        if signed_entitlements.include?('com.apple.security.app-sandbox')
+          UI.user_error!('The build is sandboxed. Its updater cannot replace the app from inside a ' \
+                         'sandbox, so the entitlements in config/Windbar.entitlements did not take effect.')
+        end
 
-      UI.success("Notarized #{dmg}")
-      generate_update_appcast(dmg: dmg, version: version, out: out)
-      dmg
+        # And that the capabilities are still there. Re-signing the app to seal the
+        # Sparkle helpers hands codesign an entitlements file, so a wrong or empty
+        # one would quietly produce an app that launches, looks fine, and cannot
+        # reach the network or talk to a fan over Bluetooth. Both are read back out
+        # of the signature rather than assumed from the file on disk.
+        %w[com.apple.security.network.client com.apple.security.device.bluetooth].each do |capability|
+          next if signed_entitlements.include?(capability)
+
+          UI.user_error!("#{capability} is missing from the signed app. Re-signing dropped it, so this " \
+                         'build could not reach Dreo or pair a fan. Check config/Windbar.entitlements.')
+        end
+
+        unless sparkle_present?(app)
+          UI.user_error!('Sparkle is missing from the build. The Windbar target must depend on the ' \
+                         'Sparkle package, because without the updater no installed copy can ever update.')
+        end
+
+        # An empty SUPublicEDKey makes Sparkle refuse every update. That is the
+        # safe failure rather than the dangerous one, but it means shipping an app
+        # whose updater can never do anything, so catch it at build time instead
+        # of discovering it when a release fails to reach anybody.
+        key = sh("/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' " \
+                 "#{app.shellescape}/Contents/Info.plist 2>/dev/null || true", log: false).strip
+        UI.user_error!('SUPublicEDKey is empty in the build. Sparkle would reject every update ' \
+                       'it is ever offered. Set SU_PUBLIC_ED_KEY on the Windbar target.') if key.empty?
+
+        unless donation_code_present?(app)
+          UI.user_error!('Donation code is missing from the build. WINDBAR_DONATIONS is set, so ' \
+                         'the compiler stripped it: nothing in the UI references DonationCoordinator.')
+        end
+        UI.success("Build: unsandboxed, Sparkle present, update key #{key[0, 8]}…")
+
+        File.write(api_key_path, ENV.fetch('ASC_KEY_P8'))
+        File.chmod(0o600, api_key_path)
+        notary = "--key #{api_key_path.shellescape} " \
+                 "--key-id #{ENV.fetch('ASC_KEY_ID').shellescape} " \
+                 "--issuer #{ENV.fetch('ASC_ISSUER_ID').shellescape}"
+
+        # Notarize and staple the app FIRST. Stapling only the disk image leaves the
+        # copy the user drags to /Applications without a ticket, so its first launch
+        # needs network. Doing the app too makes it work offline.
+        UI.important 'Notarizing the app'
+        sh("ditto -c -k --keepParent #{app.shellescape} #{out.shellescape}/Windbar.zip")
+        notarize!("#{out}/Windbar.zip", notary)
+        sh("xcrun stapler staple #{app.shellescape}")
+
+        dmg = "#{out}/Windbar-#{version}.dmg"
+        stage = "#{out}/stage"
+        FileUtils.mkdir_p(stage)
+        FileUtils.cp_r(app, stage)
+        File.symlink('/Applications', "#{stage}/Applications")
+        sh("hdiutil create -volname Windbar -srcfolder #{stage.shellescape} -ov -format UDZO #{dmg.shellescape}")
+        sh("codesign --sign 'Developer ID Application' --timestamp #{dmg.shellescape}")
+
+        UI.important 'Notarizing the disk image'
+        notarize!(dmg, notary)
+        sh("xcrun stapler staple #{dmg.shellescape}")
+        sh("xcrun stapler validate #{dmg.shellescape}")
+        # The real test: would Gatekeeper let a downloader open this?
+        sh("spctl -a -vvv -t install #{dmg.shellescape}")
+
+        UI.success("Notarized #{dmg}")
+        generate_update_appcast(dmg: dmg, version: version, out: out)
+        dmg
+      end
     ensure
       FileUtils.rm_f(api_key_path)
     end
@@ -666,160 +435,5 @@ platform :mac do
     UI.user_error!('Appcast has no EdDSA signature') unless xml.include?('edSignature')
     UI.success("Appcast written for #{version}")
     appcast
-  end
-
-  desc 'Attach the newest processed build to the current version.'
-  lane :attach_latest_build do |options|
-    require 'spaceship'
-    version = options[:version] ||
-              File.read(File.expand_path('../project.yml', __dir__))[/MARKETING_VERSION:\s*"([^"]+)"/, 1]
-    # The build this run just uploaded, if the caller knows it. Without this,
-    # "the first VALID build" races the upload: a build from a PREVIOUS run can
-    # already be VALID while today's is still processing, and gets attached
-    # instead. That happened on 2026-07-31 - build 54 just uploaded, but build 37
-    # from the day before was found VALID first and silently attached instead.
-    target_build_number = options[:build_number]&.to_s
-
-    Spaceship::ConnectAPI.auth(
-      key_id:     ENV.fetch('APP_STORE_CONNECT_API_KEY_ID'),
-      issuer_id:  ENV.fetch('APP_STORE_CONNECT_API_ISSUER_ID'),
-      key:        ENV.fetch('APP_STORE_CONNECT_API_KEY_CONTENT'),
-    )
-    app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
-    UI.user_error!("App #{APP_IDENTIFIER} not found") if app.nil?
-
-    edit = app.get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform::MAC_OS)
-    UI.user_error!("No editable #{version} version found") if edit.nil?
-
-    # Apple needs a few minutes after upload before a build is queryable at all,
-    # let alone VALID, so this has to keep polling rather than accept whatever is
-    # already there on the first pass. 30 minutes of budget: the 1.2.0 release
-    # found out that 10 is not enough, when processing outlasted the old 20
-    # polls and failed a run whose upload had actually succeeded.
-    build = nil
-    seen = []
-    60.times do |i|
-      all = Spaceship::ConnectAPI::Build.all(
-        app_id: app.id, platform: Spaceship::ConnectAPI::Platform::MAC_OS, sort: '-uploadedDate'
-      )
-      seen = all.first(5).map { |b| "##{b.version} #{b.processing_state}" }
-      build = if target_build_number
-                all.find { |b| b.version == target_build_number && b.processing_state == 'VALID' }
-              else
-                all.find { |b| b.processing_state == 'VALID' }
-              end
-      break if build
-
-      # A build Apple has already rejected will never turn VALID, so stop now
-      # rather than spending the rest of the budget waiting for it and then
-      # reporting a timeout that hides the real reason.
-      dead = all.find do |b|
-        b.version == target_build_number && %w[INVALID FAILED].include?(b.processing_state)
-      end
-      if dead
-        UI.user_error!(
-          "Build ##{dead.version} finished processing as #{dead.processing_state}. " \
-          'Apple emails the reason to the account holder; fix it and upload a new build.'
-        )
-      end
-
-      # The states are the diagnosis. Without them a stuck run cannot be told
-      # apart from a build number that never matched anything Apple has.
-      UI.message(
-        "Waiting for build #{target_build_number || 'any'} to finish processing " \
-        "(#{i + 1}/60). Newest on App Store Connect: #{seen.empty? ? 'none' : seen.join(', ')}"
-      )
-      sleep(30)
-    end
-    if build.nil?
-      UI.user_error!(
-        "No VALID build#{" ##{target_build_number}" if target_build_number} to attach after 30 minutes. " \
-        "Newest on App Store Connect: #{seen.empty? ? 'none' : seen.join(', ')}. " \
-        'The upload itself succeeded, so re-run the workflow with attach_only rather than ' \
-        'uploading again: Apple caps uploads per app per day.'
-      )
-    end
-
-    edit.select_build(build_id: build.id)
-    UI.success("Attached build #{build.version} to version #{version}")
-  end
-
-  desc 'Bump MARKETING_VERSION. This is what makes a merge ship a build.'
-  lane :bump do |options|
-    project = File.expand_path('../project.yml', __dir__)
-    current = File.read(project)[/MARKETING_VERSION:\s*"([^"]+)"/, 1]
-    target  = options[:version].to_s.strip
-
-    UI.user_error!("Pass version:x.y.z (current is #{current})") if target.empty?
-    unless target =~ /\A\d+\.\d+\.\d+\z/
-      UI.user_error!("Version must look like 1.0.1, got #{target}")
-    end
-    # Apple rejects a version that does not sort above the released one, and finding
-    # that out at upload time wastes one of the day's limited build uploads.
-    if Gem::Version.new(target) <= Gem::Version.new(current)
-      UI.user_error!("#{target} is not newer than the current #{current}")
-    end
-
-    File.write(project, File.read(project)
-      .sub(/MARKETING_VERSION:\s*"[^"]+"/, %(MARKETING_VERSION: "#{target}")))
-    UI.success("project.yml: #{current} -> #{target}")
-
-    notes = File.expand_path('metadata/en-US/release_notes.txt', __dir__)
-    UI.important 'Now update the release notes, they are what users read:'
-    UI.message "  #{notes}"
-    UI.message 'Then open a PR titled "chore(release): ' + target + '". Merging it ships the build.'
-  end
-
-  desc 'Push the store listing text only. No build, no submission.'
-  lane :push_metadata do
-    version = File.read(File.expand_path('../project.yml', __dir__))[/MARKETING_VERSION:\s*"([^"]+)"/, 1]
-    write_review_information
-
-    upload_to_app_store(
-      api_key:                        asc_api_key,
-      app_identifier:                 APP_IDENTIFIER,
-      platform:                       'osx',
-      app_version:                    version,
-      skip_binary_upload:             true,
-      skip_screenshots:               false,
-      skip_metadata:                  false,
-      skip_app_version_update:        false,
-      submit_for_review:              false,
-      force:                          true,
-      precheck_include_in_app_purchases: false,
-      run_precheck_before_submit:     false,
-    )
-    UI.success("Pushed listing metadata for #{version}")
-  end
-
-  desc 'Report which submission requirements are still outstanding.'
-  lane :submission_status do
-    md      = File.expand_path('metadata', __dir__)
-    shots   = Dir.glob(File.expand_path('screenshots/**/*.{png,jpg,jpeg}', __dir__))
-
-    placeholders = Dir.glob("#{md}/**/*.txt").sort
-                      .select { |f| File.read(f).include?('FILL ME IN') }
-                      .map { |f| File.basename(f) }
-
-    UI.important 'Windbar submission readiness'
-    UI.message "  metadata placeholders : #{placeholders.empty? ? 'none' : placeholders.join(', ')}"
-    UI.message "  screenshots           : #{shots.count} found (App Store requires at least 1)"
-    missing = REVIEW_INFORMATION_SECRETS.keys.reject { |k| ENV[k].to_s.strip != '' }
-    if missing.empty?
-      UI.message '  app review contact    : provided by secrets'
-    else
-      UI.message "  app review contact    : missing #{missing.join(', ')}"
-      UI.message '                          set them as Gitea secrets, not files (see the Gitea wiki runbook)'
-    end
-    UI.message '  by hand in ASC only   : App Privacy answers'
-    UI.message '  already done          : age rating 4+, content rights, categories, privacy URL,'
-    UI.message '                          export compliance, price schedule'
-
-    blockers = []
-    blockers << 'screenshots' if shots.empty?
-    blockers << 'review information' if Dir.exist?(pending)
-    blockers.concat(placeholders)
-    UI.user_error!("Not ready to submit: #{blockers.join(', ')}") unless blockers.empty?
-    UI.success 'Ready to submit'
   end
 end
