@@ -1,0 +1,177 @@
+# Windbar release. Builds, notarizes and publishes the DMG as a GitHub release.
+#
+# A release is: bump MARKETING_VERSION in project.yml, add
+# docs/release-notes/<version>.md, merge. A push to main ships only when the
+# version moved and the v<version> tag does not exist yet, so merging a README
+# fix does not publish anything. To rebuild a version that already has a tag,
+# run this workflow by hand: its assets are replaced in place.
+#
+# Secrets are available to this workflow only. It has no pull_request trigger,
+# and the secrets are passed to the single step that needs each of them rather
+# than to the whole job.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two releases must never overlap: they would race on the same tag and on the
+# same appcast. A queued run waits for the running one rather than cancelling it
+# halfway through a notarization.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+
+jobs:
+  gate:
+    name: Does this ship a release?
+    # Cheap Linux job, so a push that ships nothing never bills macOS minutes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ship: ${{ steps.gate.outputs.ship }}
+      version: ${{ steps.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare versions
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
+        run: |
+          set -eo pipefail
+          read_version() { sed -n 's/.*MARKETING_VERSION: *"\(.*\)".*/\1/p'; }
+          CURRENT=$(read_version < project.yml)
+          [ -n "$CURRENT" ] || { echo "::error::MARKETING_VERSION not found in project.yml"; exit 1; }
+          echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$REF" != "refs/heads/main" ]; then
+              echo "::error::Run this workflow from main."
+              exit 1
+            fi
+            echo "manual run: shipping $CURRENT"
+            echo "ship=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The commit before this push, not HEAD~1: a push can carry several
+          # commits, and only the last one's parent would be compared.
+          PREVIOUS=""
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            PREVIOUS=$(git show "$BEFORE:project.yml" 2>/dev/null | read_version || true)
+          fi
+
+          if [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "MARKETING_VERSION is still $CURRENT, nothing to release."
+            echo "ship=no" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/v$CURRENT" >/dev/null; then
+            echo "Tag v$CURRENT already exists, nothing to release."
+            echo "ship=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "version moved ${PREVIOUS:-none} -> $CURRENT, shipping"
+            echo "ship=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: Build, notarize and publish
+    needs: gate
+    if: needs.gate.outputs.ship == 'yes'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.2.app
+          xcodebuild -version
+
+      - name: Install tools
+        run: brew install xcodegen xcbeautify
+
+      - uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Build and notarize
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          # Signs the appcast. Every installed copy verifies an update against
+          # the public half baked into it, so without this the release would
+          # publish an update that nobody can install.
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: bundle exec fastlane mac release_dmg
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -eo pipefail
+          TAG="v$VERSION"
+          DMG="build/dmg/Windbar-$VERSION.dmg"
+          APPCAST="build/dmg/appcast/appcast.xml"
+          [ -f "$DMG" ] || { echo "::error::no DMG at $DMG"; exit 1; }
+          # Installed copies poll releases/latest/download/appcast.xml, so a
+          # release without it installs by hand but no existing copy ever
+          # learns that it happened.
+          [ -f "$APPCAST" ] || { echo "::error::no appcast at $APPCAST"; exit 1; }
+
+          # Refuse to ship a DMG Gatekeeper would block. Better to fail the job
+          # than to publish a download that greets people with "Windbar is damaged".
+          xcrun stapler validate "$DMG"
+
+          # What people read on the download page. Anything specific to this
+          # version lives in docs/release-notes/<version>.md; the install lines
+          # underneath never change. The filename carries the version
+          # deliberately: one shared notes file that someone forgot to update
+          # would quietly ship the previous release's text.
+          NOTES="$RUNNER_TEMP/notes.md"
+          NOTES_SRC="docs/release-notes/$VERSION.md"
+          : > "$NOTES"
+          if [ -s "$NOTES_SRC" ]; then
+            cat "$NOTES_SRC" >> "$NOTES"
+            printf '\n\n' >> "$NOTES"
+          else
+            echo "no release notes at $NOTES_SRC, using the install lines only"
+          fi
+          printf '%s\n' \
+            'Signed and notarized by Apple. Download the DMG, drag Windbar to Applications, open it.' \
+            '' \
+            'Free. This copy updates itself: Check for Updates in the menu.' >> "$NOTES"
+
+          # Re-running a version that already has a release replaces its assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" "$APPCAST" --clobber
+            echo "replaced assets on existing release $TAG"
+          else
+            gh release create "$TAG" "$DMG" "$APPCAST" \
+              --title "Windbar $VERSION" \
+              --notes-file "$NOTES" \
+              --target "$GITHUB_SHA"
+            echo "created release $TAG"
+          fi

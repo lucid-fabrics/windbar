@@ -1,0 +1,72 @@
+# Windbar CI. Runs on every pull request and on every push to main.
+#
+# This workflow never sees a secret: it builds unsigned and tests only. The
+# signing and notarization secrets are used by release.yml alone, which has no
+# pull_request trigger, so code from a fork or a branch cannot reach them.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+
+jobs:
+  test:
+    name: Build, lint and test
+    # The macOS 27 image. Its Xcode is the one this project is developed with;
+    # the default Xcode on older images cannot build it.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the version-bump check compares against the
+          # latest release tag.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.2.app
+          xcodebuild -version
+
+      - name: Install tools
+        run: brew install xcodegen swiftlint xcbeautify
+
+      # Only meaningful on a pull request. A push to main that is not a release
+      # (a docs fix, a CI change) must not need a bump, and the script itself
+      # skips pull requests that do not touch project.yml.
+      - name: Require version bump
+        if: github.event_name == 'pull_request'
+        run: ./scripts/check-version-bump.sh
+
+      - name: Script tests
+        run: make test
+
+      - name: SwiftLint
+        run: swiftlint lint --quiet
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build and test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Windbar.xcodeproj \
+            -scheme Windbar \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
