@@ -1,16 +1,8 @@
-#if WINDBAR_DIRECT
 import Foundation
 import Observation
 import Sparkle
 
-/// In-app updates for the direct-download build.
-///
-/// This whole file compiles to nothing in the App Store build. Apple ships
-/// those updates itself and rejects an app that updates itself, which is the
-/// same shape of problem as the donation code: the shipped App Store binary
-/// must not contain this, not merely avoid calling it. `release_dmg` sets
-/// `WINDBAR_DIRECT`, the `release` lane never does, and it greps the finished
-/// archive to prove the difference rather than trusting the flag.
+/// In-app updates, delivered through Sparkle from the GitHub releases feed.
 ///
 /// Everyone who downloaded the DMG gets these updates, not only people who
 /// donated. A bug fix that reaches only the people who paid is a bug
@@ -50,4 +42,3 @@ final class UpdateController {
         controller.updater.checkForUpdates()
     }
 }
-#endif
