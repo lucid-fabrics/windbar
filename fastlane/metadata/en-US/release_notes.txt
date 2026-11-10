@@ -1,3 +1,3 @@
-TurboCool Misting Fan 765S: Misting on/off, Mist Level 1-4, Oscillation and Natural mode now appear in its card and in presets.
+TurboCool Misting Fan 765S: set a Target Humidity from 40 to 90% right from its card.
 
-Every card now shows what its fan is doing, including humidity and a Tank empty warning on misting fans. Device actions are labeled under More options, and an empty account gets an Add a Device button.
+New timer: tell a running fan to turn off after 30 minutes to 8 hours, or a stopped one to turn on later. The fan keeps the time itself, so it works with your Mac asleep. Shown on fans that report Dreo's timer.
