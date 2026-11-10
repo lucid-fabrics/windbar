@@ -182,14 +182,16 @@ final class DreoAPIServiceTests: XCTestCase {
             }
             XCTAssertEqual(request.url?.path, "/api/user-device/device/state")
             // "timeron"/"timeroff" carry a nested object as their state on
-            // real devices, which DreoValue can't represent. That one bad
-            // field must not take down decoding of every other field.
+            // real devices, and "bogus" an array nothing can represent. The
+            // object has to survive, and the one bad field must not take
+            // down decoding of every other field.
             let body = #"""
             {"code":0,"msg":"OK","data":{"mixed":{
                 "poweron":{"state":true,"timestamp":123},
                 "windlevel":5,
                 "hoscangle":"-45,45",
-                "timeron":{"state":{"du":0,"ts":1785109942},"timestamp":null}
+                "timeron":{"state":{"du":0,"ts":1785109942},"timestamp":null},
+                "bogus":{"state":[1,2],"timestamp":null}
             }}}
             """#
             return (Self.httpResponse(for: request), Data(body.utf8))
@@ -202,7 +204,8 @@ final class DreoAPIServiceTests: XCTestCase {
         XCTAssertEqual(state["poweron"], .bool(true))
         XCTAssertEqual(state["windlevel"], .int(5))
         XCTAssertEqual(state["hoscangle"], .string("-45,45"))
-        XCTAssertNil(state["timeron"])
+        XCTAssertEqual(state["timeron"], .object(["du": .int(0), "ts": .int(1785109942)]))
+        XCTAssertNil(state["bogus"])
     }
 
     func test_listDevices_on401_reauthenticatesAndRetries() async throws {

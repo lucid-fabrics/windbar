@@ -58,6 +58,14 @@ final class DeviceTemplateCatalogTests: XCTestCase {
         let mist = try XCTUnwrap(schema.control.first { $0.title == "Mist Level" })
         XCTAssertEqual((mist.items ?? []).compactMap(\.value.intValue), [1, 2, 3, 4])
         XCTAssertEqual(mist.requires, "miston")
+
+        let target = try XCTUnwrap(schema.control.first { $0.title == "Target Humidity" })
+        XCTAssertEqual(target.type, "Range")
+        let item = try XCTUnwrap(target.items?.first)
+        XCTAssertEqual(item.cmd, "rhtarget")
+        XCTAssertEqual(item.range, 40...90)
+        XCTAssertEqual(item.rangeTitle, "Target Humidity")
+        XCTAssertEqual(item.rangeUnit, "%")
     }
 
     /// Every ambient-light range below was mapped by probing the fan until it

@@ -83,6 +83,9 @@ enum DeviceDiagnostics {
 
         let prefs = (schema?.preference ?? []).compactMap(\.cmd).sorted()
         lines.append("Preferences shown: " + (prefs.isEmpty ? "none" : prefs.joined(separator: ", ")))
+        // The timer keys are left out of the list below, so say here whether
+        // the fan has one: it decides whether the card shows the timer row.
+        lines.append("Timer: " + (FanTimer.isSupported(by: device.state) ? "yes" : "not reported"))
 
         let unmapped = unmappedKeys(for: device)
         if unmapped.isEmpty {

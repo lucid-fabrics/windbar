@@ -26,6 +26,8 @@ extension PresetEditor {
             lightControl(for: section)
         case "Color":
             colorControl(for: section)
+        case "Range":
+            rangeControl(for: section)
         case "Toggle":
             toggleControl(for: section)
         default:
@@ -101,6 +103,23 @@ extension PresetEditor {
                         StepSlider(range: range, value: current) { step in
                             values[item.cmd] = .int(step)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Mirrors `DeviceControlView.rangeControl`, draft-backed.
+    @ViewBuilder
+    func rangeControl(for section: ControlSection) -> some View {
+        ForEach(section.items ?? []) { item in
+            if let range = item.range {
+                let current = min(max(values[item.cmd]?.intValue ?? range.lowerBound,
+                                      range.lowerBound), range.upperBound)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    SectionLabel(title: item.rangeTitle, trailing: "\(current)\(item.rangeUnit)")
+                    StepSlider(range: range, value: current) { step in
+                        values[item.cmd] = .int(step)
                     }
                 }
             }

@@ -17,6 +17,9 @@ extension DeviceControlView {
             lightControl(for: section)
         case "Color":
             colorControl(for: section)
+        case "Range":
+            // Sliders and nothing else, e.g. a misting fan's humidity target.
+            rangeControl(for: section)
         case "Toggle":
             // A switch that governs the controls under it, e.g. the light
             // ring's own power. Preferences render these too, but this one
@@ -80,6 +83,50 @@ extension DeviceControlView {
     }
 
     @ViewBuilder
+    func rangeControl(for section: ControlSection) -> some View {
+        ForEach(section.items ?? []) { item in
+            if let range = item.range {
+                let current = min(max(device.state[item.cmd]?.intValue ?? range.lowerBound,
+                                      range.lowerBound), range.upperBound)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    SectionLabel(title: item.rangeTitle, trailing: "\(current)\(item.rangeUnit)")
+                    StepSlider(range: range, value: current) { step in
+                        appModel.setValue(.int(step), forKey: item.cmd, on: device)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The fan's own countdown. Running, it offers to switch off later;
+    /// stopped, to switch on later. That pair is the "start and finish" a
+    /// timer is for, and showing only the one that applies keeps the card
+    /// to a single row.
+    @ViewBuilder
+    func timerControl() -> some View {
+        if FanTimer.isSupported(by: device.state) {
+            let kind: FanTimer.Kind = device.isOn ? .turnOff : .turnOn
+            let running = FanTimer.active(in: device.state)
+            let choices = FanTimer.presets.map(TimerChoice.init)
+            VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                SectionLabel(
+                    title: device.isOn ? "Turn Off After" : "Turn On After",
+                    trailing: running?.summary
+                )
+                SegmentedChips(
+                    items: choices,
+                    // A running countdown matches no chip, since its time
+                    // left is not one of the presets any more. "None" lights
+                    // only when nothing is pending.
+                    selection: running == nil ? 0 : nil,
+                    label: { FanTimer.label(minutes: $0.minutes) },
+                    action: { appModel.setTimer(kind, minutes: $0.minutes, on: device) }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
     func oscillationControl(for section: ControlSection) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             HStack(spacing: Theme.Space.tight) {
@@ -137,4 +184,10 @@ extension DeviceControlView {
             }
         }
     }
+}
+
+/// One duration chip on the timer row.
+struct TimerChoice: Identifiable, Equatable {
+    let minutes: Int
+    var id: Int { minutes }
 }
